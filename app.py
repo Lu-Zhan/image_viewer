@@ -8,6 +8,96 @@ from streamlit_cropper import st_cropper
 import time
 
 
+# Language configurations
+LANGUAGES = {
+    'zh': {
+        'page_title': '图片查看器',
+        'sidebar_title': '🖼️ 图片查看器',
+        'upload_label': '上传 JSON 配置文件',
+        'upload_help': '上传包含图片路径和方法信息的 JSON 文件',
+        'no_file_msg': '👈 请在左侧上传 JSON 配置文件开始使用',
+        'json_example_title': '📄 查看 JSON 格式示例',
+        'sample_selection': '📂 样本选择',
+        'num_rows_label': '显示行数',
+        'num_rows_help': '选择同时显示多少行样本',
+        'starting_sample': '起始样本',
+        'prev_button': '⬅️ 上一个',
+        'next_button': '下一个 ➡️',
+        'current_label': '📍 当前',
+        'range_label': '📍 显示范围',
+        'close_view': '🔍 Close View',
+        'enable': '启用',
+        'close_view_help': '启用裁剪功能以查看所有方法的详细区域',
+        'show_edit_button': '显示 Edit Crop 按钮',
+        'show_edit_help': '控制是否显示编辑裁剪按钮',
+        'clear_all_crops': 'Clear All Crops',
+        'display_options': '🎨 显示选项',
+        'show_sample_name': '显示样本标题 (Sample Name)',
+        'show_method_name': '显示方法名称 (Method Name)',
+        'show_text': '显示样本文本 (Text)',
+        'show_descriptions': '显示方法说明 (Descriptions)',
+        'instructions': '📖 使用说明',
+        'edit_crop': '✏️ Edit',
+        'delete_crop': '🗑️ Delete',
+        'add_crop': '➕ Add Crop',
+        'max_crops_msg': '最多支持 {n} 个Close Views',
+        'method_desc_title': '方法说明',
+        'aspect_ratio_warning': '⚠️ 宽高比警告 - 点击查看详情',
+        'aspect_ratio_msg': '检测到部分图片宽高比存在差异：',
+        'select_reference_image': '选择参考图片：',
+        'error_no_images': '未找到有效的图片',
+        'draw_crop_hint': '👆 在上方图片上绘制矩形以选择裁剪区域',
+        'reference_image': '参考图片',
+        'close_view_preview': 'Close View 预览',
+        'draw_crop_to_preview': '在左侧绘制裁剪框以查看预览',
+        'crop_size_label': '裁剪尺寸',
+        'wide_display_mode': '宽屏模式（侧边栏收起时）',
+    },
+    'en': {
+        'page_title': 'ImageViewer',
+        'sidebar_title': '🖼️ ImageViewer',
+        'upload_label': 'Upload JSON Configuration',
+        'upload_help': 'Upload a JSON file containing image paths and method information',
+        'no_file_msg': '👈 Please upload a JSON configuration file in the sidebar',
+        'json_example_title': '📄 View JSON Format Example',
+        'sample_selection': '📂 Sample Selection',
+        'num_rows_label': 'Number of Rows',
+        'num_rows_help': 'Select how many rows of samples to display simultaneously',
+        'starting_sample': 'Starting Sample',
+        'prev_button': '⬅️ Previous',
+        'next_button': 'Next ➡️',
+        'current_label': '📍 Current',
+        'range_label': '📍 Range',
+        'close_view': '🔍 Close View',
+        'enable': 'Enable',
+        'close_view_help': 'Enable cropping feature to view detailed regions across all methods',
+        'show_edit_button': 'Show Edit Crop Button',
+        'show_edit_help': 'Control whether to show edit crop buttons',
+        'clear_all_crops': 'Clear All Crops',
+        'display_options': '🎨 Display Options',
+        'show_sample_name': 'Show Sample Name',
+        'show_method_name': 'Show Method Name',
+        'show_text': 'Show Sample Text',
+        'show_descriptions': 'Show Method Descriptions',
+        'instructions': '📖 Instructions',
+        'edit_crop': '✏️ Edit',
+        'delete_crop': '🗑️ Delete',
+        'add_crop': '➕ Add Crop',
+        'max_crops_msg': 'Maximum {n} Close Views supported',
+        'method_desc_title': 'Method Descriptions',
+        'aspect_ratio_warning': '⚠️ Aspect Ratio Warning - Click for details',
+        'aspect_ratio_msg': 'Detected aspect ratio differences in some images:',
+        'select_reference_image': 'Select reference image:',
+        'error_no_images': 'No valid images found',
+        'draw_crop_hint': '👆 Draw a rectangle on the image above to select the crop area',
+        'reference_image': 'Reference Image',
+        'close_view_preview': 'Close View Preview',
+        'draw_crop_to_preview': 'Draw a crop box on the left to see preview',
+        'crop_size_label': 'Crop size',
+        'wide_display_mode': 'Wide mode (sidebar collapsed)',
+    }
+}
+
 # Color palette for multiple close views
 CROP_COLORS = [
     '#00ff00',  # Green
@@ -409,12 +499,18 @@ def delete_crop_from_sample(sample_idx: int, crop_id: str):
 
 
 def main():
+    # Initialize language in session state BEFORE set_page_config
+    if 'language' not in st.session_state:
+        st.session_state.language = 'zh'  # Default to Chinese
+
+    lang = LANGUAGES[st.session_state.language]
+
     st.set_page_config(
-        page_title="图片比较可视化工具",
+        page_title=lang['page_title'],
         page_icon="🖼️",
         layout="wide"
     )
-    
+
     # 初始化 session state
     if 'selected_sample_idx' not in st.session_state:
         st.session_state.selected_sample_idx = 0
@@ -444,6 +540,8 @@ def main():
         st.session_state.next_crop_id_counter = 0
     if 'config_hash' not in st.session_state:
         st.session_state.config_hash = None
+    if 'wide_display_mode' not in st.session_state:
+        st.session_state.wide_display_mode = False
 
     # 迁移旧的crop数据格式到新格式
     migrate_crop_data_if_needed()
@@ -453,21 +551,30 @@ def main():
 
     # 侧边栏：配置选项
     with st.sidebar:
-        st.title("🖼️ 图片比较可视化工具")
+        # Title with language toggle
+        title_col, toggle_col = st.columns([3, 1])
+        with title_col:
+            st.title(lang['sidebar_title'])
+        with toggle_col:
+            # Language toggle button
+            current_lang_display = "EN" if st.session_state.language == 'zh' else "中"
+            if st.button(current_lang_display, key="lang_toggle", help="Switch language / 切换语言"):
+                st.session_state.language = 'en' if st.session_state.language == 'zh' else 'zh'
+                st.rerun()
 
         # 文件上传
         uploaded_file = st.file_uploader(
-            "上传 JSON 配置文件",
+            lang['upload_label'],
             type=["json"],
-            help="上传包含图片路径和方法信息的 JSON 文件"
+            help=lang['upload_help']
         )
-    
+
     # 主界面
     if uploaded_file is None:
-        st.info("👈 请在左侧上传 JSON 配置文件开始使用")
-        
+        st.info(lang['no_file_msg'])
+
         # 显示示例 JSON 格式
-        with st.expander("📄 查看 JSON 格式示例"):
+        with st.expander(lang['json_example_title']):
             st.code('''{
   "base_dir": "./images",
   "methods": [
@@ -512,16 +619,16 @@ def main():
     # 侧边栏：样本选择和显示行数控制
     with st.sidebar:
         st.divider()
-        st.subheader("📂 样本选择")
+        st.subheader(lang['sample_selection'])
 
-        # 显示行数控制
+        # 1. 显示行数控制 (moved up)
         num_rows = st.number_input(
-            "显示行数",
+            lang['num_rows_label'],
             min_value=1,
             max_value=len(samples),
             value=1,
             step=1,
-            help="选择同时显示多少行样本"
+            help=lang['num_rows_help']
         )
 
         sample_names = [s["name"] for s in samples]
@@ -534,20 +641,11 @@ def main():
         def go_next():
             st.session_state.selected_sample_idx = min(max_start_idx, st.session_state.selected_sample_idx + 1)
 
-        # 样本选择下拉框 - selectbox会自动更新session_state的key
-        st.selectbox(
-            "起始样本",
-            range(len(samples)),
-            index=st.session_state.selected_sample_idx,
-            format_func=lambda i: sample_names[i],
-            key="selected_sample_idx"
-        )
-
-        # 翻页按钮 - 使用on_click回调
+        # 2. 翻页按钮 - 使用on_click回调 (moved before selectbox)
         col_prev, col_next = st.columns(2)
         with col_prev:
             st.button(
-                "⬅️ 上一个",
+                lang['prev_button'],
                 disabled=(st.session_state.selected_sample_idx == 0),
                 use_container_width=True,
                 key="prev_btn",
@@ -556,81 +654,104 @@ def main():
 
         with col_next:
             st.button(
-                "下一个 ➡️",
+                lang['next_button'],
                 disabled=(st.session_state.selected_sample_idx >= max_start_idx),
                 use_container_width=True,
                 key="next_btn",
                 on_click=go_next
             )
 
+        # 3. 样本选择下拉框 - selectbox会自动更新session_state的key (moved to end)
+        st.selectbox(
+            lang['starting_sample'],
+            range(len(samples)),
+            index=st.session_state.selected_sample_idx,
+            format_func=lambda i: sample_names[i],
+            key="selected_sample_idx"
+        )
+
         # 显示当前范围
         end_idx = min(st.session_state.selected_sample_idx + num_rows, len(samples))
         if num_rows == 1:
-            st.caption(f"📍 当前: {sample_names[st.session_state.selected_sample_idx]} ({st.session_state.selected_sample_idx + 1}/{len(samples)})")
+            st.caption(f"{lang['current_label']}: {sample_names[st.session_state.selected_sample_idx]} ({st.session_state.selected_sample_idx + 1}/{len(samples)})")
         else:
-            st.caption(f"📍 显示范围: {st.session_state.selected_sample_idx + 1}-{end_idx} / {len(samples)}")
+            st.caption(f"{lang['range_label']}: {st.session_state.selected_sample_idx + 1}-{end_idx} / {len(samples)}")
 
         st.divider()
-        st.markdown("**🔍 Close View**")
+        st.markdown(f"**{lang['close_view']}**")
 
         close_view_enabled = st.checkbox(
-            "启用",
+            lang['enable'],
             value=st.session_state.close_view_enabled,
-            help="启用裁剪功能以查看所有方法的详细区域"
+            help=lang['close_view_help']
         )
         st.session_state.close_view_enabled = close_view_enabled
 
         if st.session_state.close_view_enabled:
             st.session_state.show_edit_crop_button = st.checkbox(
-                "显示 Edit Crop 按钮",
+                lang['show_edit_button'],
                 value=st.session_state.show_edit_crop_button,
-                help="控制是否显示编辑裁剪按钮"
+                help=lang['show_edit_help']
             )
 
         if st.session_state.crop_data:
-            if st.button("Clear All Crops", use_container_width=True):
+            if st.button(lang['clear_all_crops'], use_container_width=True):
                 st.session_state.crop_data = {}
                 st.rerun()
 
         st.divider()
 
         # 将显示选项放在 expander 中
-        with st.expander("🎨 显示选项", expanded=False):
+        with st.expander(lang['display_options'], expanded=False):
             # 控制是否显示样本标题
             st.session_state.show_sample_name = st.checkbox(
-                "显示样本标题 (Sample Name)",
+                lang['show_sample_name'],
                 value=st.session_state.show_sample_name,
                 key="show_sample_name_checkbox"
             )
 
             # 控制是否显示方法名称
             st.session_state.show_method_name = st.checkbox(
-                "显示方法名称 (Method Name)",
+                lang['show_method_name'],
                 value=st.session_state.show_method_name,
                 key="show_method_name_checkbox"
             )
 
             # 控制是否显示 text 和 descriptions
             st.session_state.show_text = st.checkbox(
-                "显示样本文本 (Text)",
+                lang['show_text'],
                 value=st.session_state.show_text,
                 key="show_text_checkbox"
             )
 
             st.session_state.show_descriptions = st.checkbox(
-                "显示方法说明 (Descriptions)",
+                lang['show_descriptions'],
                 value=st.session_state.show_descriptions,
                 key="show_descriptions_checkbox"
             )
 
+            st.session_state.wide_display_mode = st.checkbox(
+                lang['wide_display_mode'],
+                value=st.session_state.wide_display_mode,
+                key="wide_display_mode_checkbox"
+            )
+
         # 将使用说明放在 expander 中
-        with st.expander("📖 使用说明", expanded=False):
-            st.caption("""
+        with st.expander(lang['instructions'], expanded=False):
+            if st.session_state.language == 'zh':
+                st.caption("""
             1. 上传 JSON 配置文件
             2. 选择显示行数（多样本对比）
             3. 使用翻页按钮或下拉框切换样本
             4. 启用 Close View 查看图片细节
-            """)
+                """)
+            else:
+                st.caption("""
+            1. Upload JSON configuration file
+            2. Select number of rows (multi-sample comparison)
+            3. Use navigation buttons or dropdown to switch samples
+            4. Enable Close View to inspect image details
+                """)
     
     # 主界面 - 加载并显示图片
     # 确定要显示的样本范围
@@ -734,7 +855,7 @@ def main():
         method_names = [m["name"] for m in methods if m["name"] in sample["images"]]
 
         if not method_names:
-            st.error("No valid images found for this sample")
+            st.error(lang['error_no_images'])
             st.session_state.current_cropping_sample = None
             st.session_state.current_editing_crop_id = None
             st.rerun()
@@ -744,7 +865,7 @@ def main():
             st.session_state.cropper_reference_method = method_names[0]
 
         # Display method selection
-        st.write("Select reference image:")
+        st.write(lang['select_reference_image'])
         selected_method = st.radio(
             "Method",
             method_names,
@@ -760,20 +881,80 @@ def main():
             image_path = base_dir / image_rel_path
             reference_img = Image.open(image_path)
 
-            # Display cropper with crop's color
-            cropped_img = st_cropper(
-                reference_img,
-                realtime_update=True,
-                box_color=crop_color,
-                aspect_ratio=None,
-                return_type='box'
-            )
+            # Create two columns for cropper and preview (1:1 ratio)
+            col_cropper, col_preview = st.columns([1, 1], gap="medium")
 
-            # Save/Cancel buttons
+            with col_cropper:
+                st.markdown(f"**{lang['reference_image']}**")
+
+                # Dynamic width calculation based on wide display mode
+                # Wide mode: sidebar collapsed, more space available (~550px per column)
+                # Normal mode: sidebar open, less space (~420px per column)
+                if st.session_state.wide_display_mode:
+                    max_display_size = 550
+                else:
+                    max_display_size = 420
+
+                ref_w, ref_h = reference_img.size
+                scale = min(max_display_size / ref_w, max_display_size / ref_h)
+                display_size = int(max_display_size)
+                display_ref_img = reference_img.resize(
+                    (int(ref_w * scale), int(ref_h * scale)),
+                    Image.Resampling.LANCZOS
+                )
+
+                # Display cropper with crop's color
+                # Ensure reference image is fully displayed
+                cropped_img_scaled = st_cropper(
+                    display_ref_img,
+                    realtime_update=True,
+                    box_color=crop_color,
+                    aspect_ratio=(1, 1),
+                    return_type='box',
+                    key=f"cropper_{sample_idx}_{crop_id}"
+                )
+
+                # Store display_size for height consistency in preview
+                st.session_state[f"display_size_{sample_idx}_{crop_id}"] = display_size
+
+                # Scale crop coordinates back to original image size
+                cropped_img = None
+                if cropped_img_scaled and cropped_img_scaled.get('width', 0) > 0:
+                    cropped_img = {
+                        'left': cropped_img_scaled['left'] / scale,
+                        'top': cropped_img_scaled['top'] / scale,
+                        'width': cropped_img_scaled['width'] / scale,
+                        'height': cropped_img_scaled['height'] / scale
+                    }
+
+            with col_preview:
+                st.markdown(f"**{lang['close_view_preview']}**")
+
+                # Get display size to maintain height consistency
+                display_size = st.session_state.get(f"display_size_{sample_idx}_{crop_id}", display_size)
+
+                # Generate real-time preview
+                if cropped_img and cropped_img.get('width', 0) > 0 and cropped_img.get('height', 0) > 0:
+                    # Convert box format
+                    box = (
+                        int(cropped_img['left']),
+                        int(cropped_img['top']),
+                        int(cropped_img['left'] + cropped_img['width']),
+                        int(cropped_img['top'] + cropped_img['height'])
+                    )
+
+                    # Apply crop and show preview (resized to 1:1)
+                    preview_img = apply_crop_to_image(reference_img, box, image_width)
+                    st.image(preview_img, width=display_size)
+                else:
+                    # Show placeholder when no crop is drawn
+                    st.info("👆 " + lang['draw_crop_to_preview'])
+
+            # Save/Cancel buttons below both columns
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("✅ Save", use_container_width=True):
-                    if cropped_img:
+                    if cropped_img and cropped_img.get('width', 0) > 0 and cropped_img.get('height', 0) > 0:
                         # cropped_img is the box coordinates
                         box = (int(cropped_img['left']), int(cropped_img['top']),
                                int(cropped_img['left'] + cropped_img['width']),
@@ -810,7 +991,7 @@ def main():
             st.rerun()
 
         st.divider()
-        st.info("👆 Draw a rectangle on the image above to select the crop area")
+        st.info(lang['draw_crop_hint'])
         st.divider()
 
     # 收集所有样本的图片信息
@@ -910,14 +1091,14 @@ def main():
                         with title_cols[1]:
                             button_cols = st.columns([1, 1, 4])
                             with button_cols[0]:
-                                if st.button("✏️ Edit", key=f"edit_crop_{actual_sample_idx}_{crop['id']}", use_container_width=True):
+                                if st.button(lang['edit_crop'], key=f"edit_crop_{actual_sample_idx}_{crop['id']}", use_container_width=True):
                                     st.session_state.current_cropping_sample = actual_sample_idx
                                     st.session_state.current_editing_crop_id = crop['id']
                                     st.session_state.cropper_reference_method = None
                                     st.rerun()
 
                             with button_cols[1]:
-                                if st.button("🗑️ Delete", key=f"delete_crop_{actual_sample_idx}_{crop['id']}", use_container_width=True):
+                                if st.button(lang['delete_crop'], key=f"delete_crop_{actual_sample_idx}_{crop['id']}", use_container_width=True):
                                     delete_crop_from_sample(actual_sample_idx, crop['id'])
                                     st.rerun()
 
@@ -936,29 +1117,33 @@ def main():
                 num_crops = len(crops)
 
                 if num_crops < MAX_CROPS_PER_SAMPLE:
-                    if st.button("➕ Add Crop", key=f"add_crop_btn_{actual_sample_idx}", use_container_width=True):
+                    if st.button(lang['add_crop'], key=f"add_crop_btn_{actual_sample_idx}", use_container_width=True):
                         st.session_state.current_cropping_sample = actual_sample_idx
                         st.session_state.current_editing_crop_id = None  # None means new crop
                         st.session_state.cropper_reference_method = None
                         st.rerun()
                 else:
-                    st.info(f"最多支持 {MAX_CROPS_PER_SAMPLE} 个Close Views")
+                    st.info(lang['max_crops_msg'].format(n=MAX_CROPS_PER_SAMPLE))
         else:
-            st.error(f"样本 '{sample['name']}' 没有成功加载任何图片")
+            if st.session_state.language == 'zh':
+                st.error(f"样本 '{sample['name']}' 没有成功加载任何图片")
+            else:
+                st.error(f"Sample '{sample['name']}' failed to load any images")
         
         # 显示样本的 text 字段（如果启用）
         if st.session_state.show_text and "text" in sample and sample["text"]:
+            text_label = "文本:" if st.session_state.language == 'zh' else "Text:"
             if st.session_state.show_sample_name:
                 # 显示加粗的样本名称 + text
-                st.markdown(f"<small><b>{sample['name']}</b> ｜ Text: {sample['text']}</small>", unsafe_allow_html=True)
+                st.markdown(f"<small><b>{sample['name']}</b> ｜ {text_label} {sample['text']}</small>", unsafe_allow_html=True)
             else:
                 # 只显示text
-                st.caption(f"Text: {sample['text']}")
+                st.caption(f"{text_label} {sample['text']}")
         
         # 只在最后一行样本之后显示 method descriptions（如果启用）
         if row_idx == len(selected_samples) - 1 and st.session_state.show_descriptions:
             st.divider()
-            st.markdown("#### 方法说明")
+            st.markdown(f"#### {lang['method_desc_title']}")
             method_cols = st.columns(len(methods))
             for col, method in zip(method_cols, methods):
                 with col:
@@ -974,15 +1159,15 @@ def main():
     if len(all_aspect_ratios) > 1:
         ratios = [ratio for _, _, ratio in all_aspect_ratios]
         avg_ratio = sum(ratios) / len(ratios)
-        
+
         inconsistent = []
         for sample_name, method_name, ratio in all_aspect_ratios:
             if abs(ratio - avg_ratio) / avg_ratio > 0.05:
                 inconsistent.append((sample_name, method_name, ratio))
-        
+
         if inconsistent:
-            with st.expander("⚠️ 宽高比警告 - 点击查看详情"):
-                st.warning("检测到部分图片宽高比存在差异：")
+            with st.expander(lang['aspect_ratio_warning']):
+                st.warning(lang['aspect_ratio_msg'])
                 for sample_name, method_name, ratio in inconsistent:
                     st.write(f"- {sample_name} - {method_name}: {ratio:.3f} (宽:高 = {ratio:.2f}:1)")
 

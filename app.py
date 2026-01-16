@@ -551,14 +551,13 @@ def main():
 
     # 侧边栏：配置选项
     with st.sidebar:
-        # Title with language toggle
-        title_col, toggle_col = st.columns([3, 1])
+        # Language toggle button in top-left with title
+        title_col, toggle_col = st.columns([4, 1])
         with title_col:
             st.title(lang['sidebar_title'])
         with toggle_col:
-            # Language toggle button
-            current_lang_display = "EN" if st.session_state.language == 'zh' else "中"
-            if st.button(current_lang_display, key="lang_toggle", help="Switch language / 切换语言"):
+            # Compact language toggle button
+            if st.button("中/En", key="lang_toggle", help="Switch language / 切换语言", use_container_width=True):
                 st.session_state.language = 'en' if st.session_state.language == 'zh' else 'zh'
                 st.rerun()
 

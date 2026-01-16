@@ -894,10 +894,16 @@ def main():
                 for crop_idx, crop in enumerate(crops):
                     color = crop['color']
 
-                    # Close View title with Edit/Delete buttons if enabled
+                    # Close View title with color indicator and Edit/Delete buttons if enabled
                     title_cols = st.columns([1, 5])
                     with title_cols[0]:
-                        st.markdown(f"**Close View #{crop_idx + 1}**")
+                        st.markdown(
+                            f'<div style="margin-bottom: 5px;"><span style="display: inline-block; '
+                            f'width: 14px; height: 14px; background-color: {color}; '
+                            f'border: 1px solid #333; margin-right: 6px; vertical-align: middle;"></span>'
+                            f'<b style="vertical-align: middle;">Close View #{crop_idx + 1}</b></div>',
+                            unsafe_allow_html=True
+                        )
 
                     # Only show Edit/Delete buttons if show_edit_crop_button is enabled
                     if st.session_state.show_edit_crop_button:
@@ -915,19 +921,13 @@ def main():
                                     delete_crop_from_sample(actual_sample_idx, crop['id'])
                                     st.rerun()
 
-                    # Cropped images in columns with colored borders
+                    # Cropped images in columns
                     crop_cols = st.columns(len(images_data))
                     for col_idx, (col, data) in enumerate(zip(crop_cols, images_data)):
                         with col:
                             method_name = data["method_name"]
                             if method_name in crop['cropped_images']:
-                                # Add colored border using inline CSS
-                                st.markdown(
-                                    f'<div style="border: 3px solid {color}; padding: 2px; box-sizing: border-box;">',
-                                    unsafe_allow_html=True
-                                )
                                 st.image(crop['cropped_images'][method_name], use_container_width=True)
-                                st.markdown('</div>', unsafe_allow_html=True)
 
             # Add Crop button at the bottom if close view is enabled and button is set to show
             if st.session_state.close_view_enabled and st.session_state.show_edit_crop_button:

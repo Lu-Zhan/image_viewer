@@ -8,6 +8,17 @@ from streamlit_cropper import st_cropper
 import time
 
 
+# Color palette for multiple close views
+CROP_COLORS = [
+    '#00ff00',  # Green
+    '#ff0000',  # Red
+    '#0000ff',  # Blue
+    '#ffff00',  # Yellow
+    '#ff00ff',  # Magenta
+]
+MAX_CROPS_PER_SAMPLE = 5
+
+
 def load_json_config(uploaded_file) -> Optional[Dict]:
     """加载并验证 JSON 配置文件"""
     try:
@@ -149,9 +160,10 @@ def apply_crop_to_image(image: Image.Image, box: Tuple[int, int, int, int], targ
 
 def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
                          samples: List[Dict], methods: List[Dict],
-                         base_dir: Path, target_width: int) -> bool:
+                         base_dir: Path, target_width: int,
+                         crop_id: str, color: str) -> bool:
     """
-    对样本的所有方法图片应用相同的裁剪框
+    对样本的所有方法图片应用相同的裁剪框（支持多crop）
     参数:
         sample_idx: 样本索引
         box: 裁剪框坐标 (left, top, right, bottom)
@@ -159,6 +171,8 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
         methods: 方法列表
         base_dir: 图片基础路径
         target_width: 目标宽度
+        crop_id: crop的唯一标识符
+        color: crop的颜色
     返回:
         是否成功
     """
@@ -184,12 +198,36 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
             cropped = apply_crop_to_image(img, box, target_width)
             cropped_images[method_name] = cropped
 
-        # 存储裁剪数据
-        st.session_state.crop_data[sample_idx] = {
+        # 创建新的crop对象
+        new_crop = {
+            'id': crop_id,
+            'color': color,
             'box': box,
             'cropped_images': cropped_images,
             'original_sizes': original_sizes
         }
+
+        # 初始化或更新crop_data
+        if sample_idx not in st.session_state.crop_data:
+            st.session_state.crop_data[sample_idx] = {'crops': []}
+
+        if 'crops' not in st.session_state.crop_data[sample_idx]:
+            st.session_state.crop_data[sample_idx]['crops'] = []
+
+        # 检查是否是更新已有crop
+        crop_list = st.session_state.crop_data[sample_idx]['crops']
+        crop_found = False
+
+        for i, crop in enumerate(crop_list):
+            if crop['id'] == crop_id:
+                # 更新已有crop
+                crop_list[i] = new_crop
+                crop_found = True
+                break
+
+        # 如果是新crop，添加到列表
+        if not crop_found:
+            crop_list.append(new_crop)
 
         return True
     except Exception as e:
@@ -208,17 +246,45 @@ def get_crop_data(sample_idx: int) -> Optional[Dict]:
     return st.session_state.crop_data.get(sample_idx, None)
 
 
-def draw_crop_box_on_image(image: Image.Image, box: Tuple[int, int, int, int],
-                           original_size: Tuple[int, int], display_size: Tuple[int, int]) -> Image.Image:
+def migrate_crop_data_if_needed():
     """
-    在图片上绘制绿色裁剪框
+    将旧的单crop格式迁移到新的多crop格式
+    旧格式: {sample_idx: {'box': ..., 'cropped_images': {...}, 'original_sizes': {...}}}
+    新格式: {sample_idx: {'crops': [{'id': ..., 'color': ..., 'box': ..., ...}, ...]}}
+    """
+    if not hasattr(st.session_state, 'crop_data'):
+        return
+
+    for sample_idx in list(st.session_state.crop_data.keys()):
+        data = st.session_state.crop_data[sample_idx]
+
+        # 检查是否是旧格式（直接有'box'键，而不是'crops'）
+        if 'box' in data and 'crops' not in data:
+            # 迁移到新格式
+            st.session_state.crop_data[sample_idx] = {
+                'crops': [{
+                    'id': 'crop_0',
+                    'color': CROP_COLORS[0],  # Green
+                    'box': data['box'],
+                    'cropped_images': data.get('cropped_images', {}),
+                    'original_sizes': data.get('original_sizes', {})
+                }]
+            }
+
+
+def draw_crop_box_on_image(image: Image.Image, box: Tuple[int, int, int, int],
+                           original_size: Tuple[int, int], display_size: Tuple[int, int],
+                           color: str = '#00ff00') -> Image.Image:
+    """
+    在图片上绘制裁剪框
     参数:
         image: 要绘制的图片（已处理过的显示版本）
         box: 原始图片上的裁剪框坐标 (left, top, right, bottom)
         original_size: 原始图片尺寸 (width, height)
         display_size: 显示图片尺寸 (width, height)
+        color: 框的颜色 (默认: '#00ff00' 绿色)
     返回:
-        绘制了绿色框的图片
+        绘制了指定颜色框的图片
     """
     # 创建图片副本
     img_with_box = image.copy()
@@ -234,15 +300,112 @@ def draw_crop_box_on_image(image: Image.Image, box: Tuple[int, int, int, int],
     right = int(box[2] * scale_x)
     bottom = int(box[3] * scale_y)
 
-    # 绘制绿色矩形框（3像素宽）
+    # 绘制指定颜色的矩形框（3像素宽）
     for i in range(3):
         draw.rectangle(
             [(left + i, top + i), (right - i, bottom - i)],
-            outline='#00ff00',
+            outline=color,
             width=1
         )
 
     return img_with_box
+
+
+def draw_all_crop_boxes_on_image(image: Image.Image, crops: List[Dict],
+                                  original_size: Tuple[int, int], display_size: Tuple[int, int]) -> Image.Image:
+    """
+    在图片上绘制多个裁剪框
+    参数:
+        image: 要绘制的图片
+        crops: 裁剪数据列表，每个包含 'box' 和 'color'
+        original_size: 原始图片尺寸 (width, height)
+        display_size: 显示图片尺寸 (width, height)
+    返回:
+        绘制了所有裁剪框的图片
+    """
+    result_img = image.copy()
+
+    for crop in crops:
+        result_img = draw_crop_box_on_image(
+            result_img,
+            crop['box'],
+            original_size,
+            display_size,
+            crop['color']
+        )
+
+    return result_img
+
+
+def get_next_crop_color(sample_idx: int) -> str:
+    """
+    获取下一个可用的crop颜色
+    参数:
+        sample_idx: 样本索引
+    返回:
+        下一个可用的颜色（从CROP_COLORS中选择未使用的）
+    """
+    crop_data = get_crop_data(sample_idx)
+
+    if not crop_data or 'crops' not in crop_data:
+        # 没有crops，返回第一个颜色
+        return CROP_COLORS[0]
+
+    # 获取已使用的颜色
+    used_colors = {crop['color'] for crop in crop_data['crops']}
+
+    # 找到第一个未使用的颜色
+    for color in CROP_COLORS:
+        if color not in used_colors:
+            return color
+
+    # 如果所有颜色都被使用（不应该发生，因为有MAX_CROPS_PER_SAMPLE限制）
+    # 返回第一个颜色
+    return CROP_COLORS[0]
+
+
+def get_crop_by_id(sample_idx: int, crop_id: str) -> Optional[Dict]:
+    """
+    根据crop ID获取crop数据
+    参数:
+        sample_idx: 样本索引
+        crop_id: crop ID
+    返回:
+        crop数据字典，如果不存在则返回None
+    """
+    crop_data = get_crop_data(sample_idx)
+
+    if not crop_data or 'crops' not in crop_data:
+        return None
+
+    for crop in crop_data['crops']:
+        if crop['id'] == crop_id:
+            return crop
+
+    return None
+
+
+def delete_crop_from_sample(sample_idx: int, crop_id: str):
+    """
+    从样本中删除指定的crop
+    参数:
+        sample_idx: 样本索引
+        crop_id: 要删除的crop ID
+    """
+    if sample_idx not in st.session_state.crop_data:
+        return
+
+    crop_data = st.session_state.crop_data[sample_idx]
+
+    if 'crops' not in crop_data:
+        return
+
+    # 过滤掉要删除的crop
+    crop_data['crops'] = [crop for crop in crop_data['crops'] if crop['id'] != crop_id]
+
+    # 如果没有crops了，删除整个sample的crop_data
+    if not crop_data['crops']:
+        del st.session_state.crop_data[sample_idx]
 
 
 def main():
@@ -275,12 +438,19 @@ def main():
         st.session_state.current_cropping_sample = None
     if 'cropper_reference_method' not in st.session_state:
         st.session_state.cropper_reference_method = None
+    if 'current_editing_crop_id' not in st.session_state:
+        st.session_state.current_editing_crop_id = None
+    if 'next_crop_id_counter' not in st.session_state:
+        st.session_state.next_crop_id_counter = 0
     if 'config_hash' not in st.session_state:
         st.session_state.config_hash = None
 
+    # 迁移旧的crop数据格式到新格式
+    migrate_crop_data_if_needed()
+
     # 固定图片宽度，自动撑满页面
     image_width = 800
-    
+
     # 侧边栏：配置选项
     with st.sidebar:
         st.title("🖼️ 图片比较可视化工具")
@@ -517,7 +687,47 @@ def main():
         sample_idx = st.session_state.current_cropping_sample
         sample = samples[sample_idx]
 
-        st.markdown(f"### 🔍 Select Crop Area: {sample['name']}")
+        # Determine if adding new crop or editing existing
+        is_editing = st.session_state.current_editing_crop_id is not None
+
+        if is_editing:
+            # Editing existing crop
+            existing_crop = get_crop_by_id(sample_idx, st.session_state.current_editing_crop_id)
+            if existing_crop:
+                crop_id = existing_crop['id']
+                crop_color = existing_crop['color']
+                crop_number = None
+                # Find crop number for display
+                crop_data = get_crop_data(sample_idx)
+                if crop_data and 'crops' in crop_data:
+                    for idx, c in enumerate(crop_data['crops']):
+                        if c['id'] == crop_id:
+                            crop_number = idx + 1
+                            break
+
+                title = f"### 🔍 Edit Crop for: {sample['name']}"
+                if crop_number:
+                    st.markdown(
+                        f"{title}\n\n"
+                        f'<div style="margin-bottom: 10px;"><span style="display: inline-block; '
+                        f'width: 16px; height: 16px; background-color: {crop_color}; '
+                        f'border: 1px solid #333; margin-right: 8px;"></span>'
+                        f'<b>Close View #{crop_number}</b></div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown(title)
+            else:
+                # Crop not found, treat as new
+                is_editing = False
+                st.session_state.current_editing_crop_id = None
+
+        if not is_editing:
+            # Adding new crop
+            crop_id = f"crop_{st.session_state.next_crop_id_counter}"
+            crop_color = get_next_crop_color(sample_idx)
+            st.markdown(f"### 🔍 Add Crop for: {sample['name']}")
+
         st.divider()
 
         # Method selection for reference image
@@ -526,6 +736,7 @@ def main():
         if not method_names:
             st.error("No valid images found for this sample")
             st.session_state.current_cropping_sample = None
+            st.session_state.current_editing_crop_id = None
             st.rerun()
 
         # Initialize reference method if not set
@@ -549,11 +760,11 @@ def main():
             image_path = base_dir / image_rel_path
             reference_img = Image.open(image_path)
 
-            # Display cropper
+            # Display cropper with crop's color
             cropped_img = st_cropper(
                 reference_img,
                 realtime_update=True,
-                box_color='#00ff00',
+                box_color=crop_color,
                 aspect_ratio=None,
                 return_type='box'
             )
@@ -561,7 +772,7 @@ def main():
             # Save/Cancel buttons
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✅ Save Crop", use_container_width=True):
+                if st.button("✅ Save", use_container_width=True):
                     if cropped_img:
                         # cropped_img is the box coordinates
                         box = (int(cropped_img['left']), int(cropped_img['top']),
@@ -569,9 +780,16 @@ def main():
                                int(cropped_img['top'] + cropped_img['height']))
 
                         # Save crop for all methods in this sample
-                        if save_crop_for_sample(sample_idx, box, samples, methods, base_dir, image_width):
+                        if save_crop_for_sample(sample_idx, box, samples, methods, base_dir, image_width, crop_id, crop_color):
                             st.success("Crop saved successfully!")
+
+                            # Increment counter if this was a new crop
+                            if not is_editing:
+                                st.session_state.next_crop_id_counter += 1
+
+                            # Clear editing state
                             st.session_state.current_cropping_sample = None
+                            st.session_state.current_editing_crop_id = None
                             st.session_state.cropper_reference_method = None
                             time.sleep(0.5)
                             st.rerun()
@@ -581,12 +799,14 @@ def main():
             with col2:
                 if st.button("❌ Cancel", use_container_width=True):
                     st.session_state.current_cropping_sample = None
+                    st.session_state.current_editing_crop_id = None
                     st.session_state.cropper_reference_method = None
                     st.rerun()
 
         except Exception as e:
             st.error(f"Error loading reference image: {e}")
             st.session_state.current_cropping_sample = None
+            st.session_state.current_editing_crop_id = None
             st.rerun()
 
         st.divider()
@@ -621,21 +841,23 @@ def main():
             processed_img, original_ratio, was_cropped = load_and_process_image(image_path, image_width)
 
             if processed_img is not None:
-                # 如果有crop data且close view启用，在图片上绘制绿色框
-                if st.session_state.close_view_enabled and crop_data and method_name in crop_data.get('original_sizes', {}):
+                # 如果有crop data且close view启用，在图片上绘制所有crop框
+                if st.session_state.close_view_enabled and crop_data:
                     try:
                         # 加载原始图片以获取正确的尺寸
                         original_img = Image.open(image_path)
                         original_size = original_img.size
                         display_size = processed_img.size
 
-                        # 在processed_img上绘制绿色框
-                        processed_img = draw_crop_box_on_image(
-                            processed_img,
-                            crop_data['box'],
-                            original_size,
-                            display_size
-                        )
+                        # 获取crops列表并绘制所有框
+                        crops = crop_data.get('crops', [])
+                        if crops:
+                            processed_img = draw_all_crop_boxes_on_image(
+                                processed_img,
+                                crops,
+                                original_size,
+                                display_size
+                            )
                     except Exception as e:
                         pass  # 如果绘制失败，使用原始图片
 
@@ -665,25 +887,62 @@ def main():
                         use_container_width=True
                     )
 
-            # Display cropped images if crop exists and close view is enabled
+            # Display multiple cropped close views vertically
             if st.session_state.close_view_enabled and crop_data:
-                crop_cols = st.columns(len(images_data))
+                crops = crop_data.get('crops', [])
 
-                for idx, (col, data) in enumerate(zip(crop_cols, images_data)):
-                    with col:
-                        method_name = data["method_name"]
-                        if method_name in crop_data['cropped_images']:
-                            cropped_img = crop_data['cropped_images'][method_name]
-                            st.image(cropped_img, use_container_width=True)
+                for crop_idx, crop in enumerate(crops):
+                    color = crop['color']
 
-            # Add Edit Crop button at the bottom if close view is enabled and button is set to show
+                    # Close View title with Edit/Delete buttons if enabled
+                    title_cols = st.columns([1, 5])
+                    with title_cols[0]:
+                        st.markdown(f"**Close View #{crop_idx + 1}**")
+
+                    # Only show Edit/Delete buttons if show_edit_crop_button is enabled
+                    if st.session_state.show_edit_crop_button:
+                        with title_cols[1]:
+                            button_cols = st.columns([1, 1, 4])
+                            with button_cols[0]:
+                                if st.button("✏️ Edit", key=f"edit_crop_{actual_sample_idx}_{crop['id']}", use_container_width=True):
+                                    st.session_state.current_cropping_sample = actual_sample_idx
+                                    st.session_state.current_editing_crop_id = crop['id']
+                                    st.session_state.cropper_reference_method = None
+                                    st.rerun()
+
+                            with button_cols[1]:
+                                if st.button("🗑️ Delete", key=f"delete_crop_{actual_sample_idx}_{crop['id']}", use_container_width=True):
+                                    delete_crop_from_sample(actual_sample_idx, crop['id'])
+                                    st.rerun()
+
+                    # Cropped images in columns with colored borders
+                    crop_cols = st.columns(len(images_data))
+                    for col_idx, (col, data) in enumerate(zip(crop_cols, images_data)):
+                        with col:
+                            method_name = data["method_name"]
+                            if method_name in crop['cropped_images']:
+                                # Add colored border using inline CSS
+                                st.markdown(
+                                    f'<div style="border: 3px solid {color}; padding: 2px; box-sizing: border-box;">',
+                                    unsafe_allow_html=True
+                                )
+                                st.image(crop['cropped_images'][method_name], use_container_width=True)
+                                st.markdown('</div>', unsafe_allow_html=True)
+
+            # Add Crop button at the bottom if close view is enabled and button is set to show
             if st.session_state.close_view_enabled and st.session_state.show_edit_crop_button:
-                button_label = "✏️ Edit Crop" if crop_data else "➕ Add Crop"
+                # Check if max crops reached
+                crops = crop_data.get('crops', []) if crop_data else []
+                num_crops = len(crops)
 
-                if st.button(button_label, key=f"crop_btn_{actual_sample_idx}", use_container_width=True):
-                    st.session_state.current_cropping_sample = actual_sample_idx
-                    st.session_state.cropper_reference_method = None
-                    st.rerun()
+                if num_crops < MAX_CROPS_PER_SAMPLE:
+                    if st.button("➕ Add Crop", key=f"add_crop_btn_{actual_sample_idx}", use_container_width=True):
+                        st.session_state.current_cropping_sample = actual_sample_idx
+                        st.session_state.current_editing_crop_id = None  # None means new crop
+                        st.session_state.cropper_reference_method = None
+                        st.rerun()
+                else:
+                    st.info(f"最多支持 {MAX_CROPS_PER_SAMPLE} 个Close Views")
         else:
             st.error(f"样本 '{sample['name']}' 没有成功加载任何图片")
         

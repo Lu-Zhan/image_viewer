@@ -3,19 +3,19 @@
   "methods": [
     {
       "name": "Image",
-      "description": "未经处理的原始图片"
+      "description": "D1"
     },
     {
       "name": "Albedo",
-      "description": "使用算法A处理后的结果"
+      "description": "D2"
     },
     {
       "name": "Normal",
-      "description": "使用算法B处理后的结果"
+      "description": "D3"
     },
     {
       "name": "Irradiance",
-      "description": "使用算法B处理后的结果"
+      "description": "D4"
     }
   ],
   "samples": [

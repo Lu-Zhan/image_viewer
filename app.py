@@ -21,8 +21,8 @@ LANGUAGES = {
         'num_rows_label': '显示行数',
         'num_rows_help': '选择同时显示多少行样本',
         'starting_sample': '起始样本',
-        'prev_button': '⬅️ 上一个',
-        'next_button': '下一个 ➡️',
+        'prev_button': '上一个',
+        'next_button': '下一个',
         'current_label': '📍 当前',
         'range_label': '📍 显示范围',
         'close_view': '🔍 Close View',
@@ -64,8 +64,8 @@ LANGUAGES = {
         'num_rows_label': 'Number of Rows',
         'num_rows_help': 'Select how many rows of samples to display simultaneously',
         'starting_sample': 'Starting Sample',
-        'prev_button': '⬅️ Previous',
-        'next_button': 'Next ➡️',
+        'prev_button': 'Previous',
+        'next_button': 'Next',
         'current_label': '📍 Current',
         'range_label': '📍 Range',
         'close_view': '🔍 Close View',
@@ -552,14 +552,14 @@ def main():
     # 侧边栏：配置选项
     with st.sidebar:
         # Language toggle button in top-left with title
-        title_col, toggle_col = st.columns([4, 1])
-        with title_col:
-            st.title(lang['sidebar_title'])
-        with toggle_col:
-            # Compact language toggle button
-            if st.button("中/En", key="lang_toggle", help="Switch language / 切换语言", use_container_width=True):
-                st.session_state.language = 'en' if st.session_state.language == 'zh' else 'zh'
-                st.rerun()
+        # title_col, toggle_col = st.columns([0.7, 0.3])
+        # with title_col:
+        #     st.title(lang['sidebar_title'])
+        # with toggle_col:
+        # Compact language toggle button
+        if st.button("中/En", key="lang_toggle", help="Switch language / 切换语言", use_container_width=True):
+            st.session_state.language = 'en' if st.session_state.language == 'zh' else 'zh'
+            st.rerun()
 
         # 文件上传
         uploaded_file = st.file_uploader(
@@ -570,6 +570,7 @@ def main():
 
     # 主界面
     if uploaded_file is None:
+        st.title(lang['sidebar_title'])
         st.info(lang['no_file_msg'])
 
         # 显示示例 JSON 格式
@@ -617,10 +618,13 @@ def main():
     
     # 侧边栏：样本选择和显示行数控制
     with st.sidebar:
-        st.divider()
-        st.subheader(lang['sample_selection'])
+        # st.divider()
+        # st.subheader(lang['sample_selection'])
+
+        # num_col, col_prev, col_next = st.columns([0.5, 0.25, 0.25])
 
         # 1. 显示行数控制 (moved up)
+        # with num_col:
         num_rows = st.number_input(
             lang['num_rows_label'],
             min_value=1,
@@ -643,6 +647,7 @@ def main():
         # 2. 翻页按钮 - 使用on_click回调 (moved before selectbox)
         col_prev, col_next = st.columns(2)
         with col_prev:
+            # add blank space to align buttons
             st.button(
                 lang['prev_button'],
                 disabled=(st.session_state.selected_sample_idx == 0),
@@ -650,7 +655,7 @@ def main():
                 key="prev_btn",
                 on_click=go_prev
             )
-
+            
         with col_next:
             st.button(
                 lang['next_button'],
@@ -676,11 +681,11 @@ def main():
         else:
             st.caption(f"{lang['range_label']}: {st.session_state.selected_sample_idx + 1}-{end_idx} / {len(samples)}")
 
-        st.divider()
-        st.markdown(f"**{lang['close_view']}**")
+        # st.divider()
+        # st.markdown(f"**{lang['close_view']}**")
 
         close_view_enabled = st.checkbox(
-            lang['enable'],
+            lang['close_view'],
             value=st.session_state.close_view_enabled,
             help=lang['close_view_help']
         )

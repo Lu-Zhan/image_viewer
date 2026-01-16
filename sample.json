@@ -1,0 +1,53 @@
+{
+  "base_dir": "./ArmChair_01_4k",
+  "methods": [
+    {
+      "name": "Image",
+      "description": "未经处理的原始图片"
+    },
+    {
+      "name": "Albedo",
+      "description": "使用算法A处理后的结果"
+    },
+    {
+      "name": "Normal",
+      "description": "使用算法B处理后的结果"
+    },
+    {
+      "name": "Irradiance",
+      "description": "使用算法B处理后的结果"
+    }
+  ],
+  "samples": [
+    {
+      "name": "Sample1",
+      "images": {
+        "Image": "images/cobblestone_street_night_4k.png",
+        "Albedo": "intrinsics/basecolor.png",
+        "Normal": "intrinsics/normal.png",
+        "Irradiance": "irradiances/cobblestone_street_night_4k.png"
+      },
+      "text": "Prompt1"
+    },
+    {
+      "name": "Sample2",
+      "images": {
+        "Image": "images/old_outdoor_theater_4k.png",
+        "Albedo": "intrinsics/basecolor.png",
+        "Normal": "intrinsics/normal.png",
+        "Irradiance": "irradiances/old_outdoor_theater_4k.png"
+      },
+      "text": "Prompt2"
+    },
+    {
+      "name": "Sample3",
+      "images": {
+        "Image": "images/the_sky_is_on_fire_4k.png",
+        "Albedo": "intrinsics/basecolor.png",
+        "Normal": "intrinsics/normal.png",
+        "Irradiance": "irradiances/the_sky_is_on_fire_4k.png"
+      },
+      "text": "Prompt3"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+streamlit>=1.30.0
+pillow>=10.0.0
+streamlit-cropper>=0.2.1

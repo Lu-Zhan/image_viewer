@@ -27,7 +27,9 @@
         "Normal": "intrinsics/normal.png",
         "Irradiance": "irradiances/cobblestone_street_night_4k.png"
       },
-      "text": "Prompt1"
+      "text": "Prompt1",
+      "reference": "images/cobblestone_street_night_4k.png",
+      "mask": "intrinsics/mask.png"
     },
     {
       "name": "Sample2",
@@ -37,7 +39,9 @@
         "Normal": "intrinsics/normal.png",
         "Irradiance": "irradiances/old_outdoor_theater_4k.png"
       },
-      "text": "Prompt2"
+      "text": "Prompt2",
+      "reference": "images/old_outdoor_theater_4k.png",
+      "mask": "intrinsics/mask.png"
     },
     {
       "name": "Sample3",
@@ -45,9 +49,11 @@
         "Image": "images/the_sky_is_on_fire_4k.png",
         "Albedo": "intrinsics/basecolor.png",
         "Normal": "intrinsics/normal.png",
-        "Irradiance": "irradiances/the_sky_is_on_fire_4k.png"
+        "Irradiance": "Image not found"
       },
-      "text": "Prompt3"
+      "text": "Prompt3",
+      "reference": "images/the_sky_is_on_fire_4k.png",
+      "mask": "intrinsics/mask.png"
     }
   ]
 }

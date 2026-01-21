@@ -51,7 +51,14 @@ LANGUAGES = {
         'close_view_preview': 'Close View 预览',
         'draw_crop_to_preview': '在左侧绘制裁剪框以查看预览',
         'crop_size_label': '裁剪尺寸',
-        'wide_display_mode': '宽屏模式（侧边栏收起时）',
+        'valid_methods_count': '可用参考图片: {n}/{total}',
+        'no_valid_reference': '没有可用的参考图片',
+        'text_size_label': 'Prompt文本大小',
+        'text_size_help': '调整样本文本显示大小（10-24px）',
+        'method_text_size_label': '方法文本大小',
+        'method_text_size_help': '调整方法名称和说明显示大小（10-24px）',
+        'preserve_aspect_ratio': '保持原始比例',
+        'preserve_aspect_ratio_help': '不裁剪为正方形，完整显示图片',
     },
     'en': {
         'page_title': 'ImageViewer',
@@ -94,7 +101,14 @@ LANGUAGES = {
         'close_view_preview': 'Close View Preview',
         'draw_crop_to_preview': 'Draw a crop box on the left to see preview',
         'crop_size_label': 'Crop size',
-        'wide_display_mode': 'Wide mode (sidebar collapsed)',
+        'valid_methods_count': 'Available images: {n}/{total}',
+        'no_valid_reference': 'No valid reference images available',
+        'text_size_label': 'Prompt Text Size',
+        'text_size_help': 'Adjust sample text display size (10-24px)',
+        'method_text_size_label': 'Method Text Size',
+        'method_text_size_help': 'Adjust method name and description display size (10-24px)',
+        'preserve_aspect_ratio': 'Preserve aspect ratio',
+        'preserve_aspect_ratio_help': 'Display full image without cropping to square',
     }
 }
 
@@ -176,28 +190,34 @@ def find_closest_square_crop(image: Image.Image) -> Tuple[int, int, int, int]:
     return (left, top, right, bottom)
 
 
-def load_and_process_image(image_path: Path, target_width: int = 512) -> Tuple[Optional[Image.Image], float, bool]:
+def load_and_process_image(image_path: Path, target_width: int = 512,
+                           preserve_aspect_ratio: bool = False) -> Tuple[Optional[Image.Image], float, bool]:
     """
     加载并处理图片
+    参数:
+        image_path: 图片路径
+        target_width: 目标宽度
+        preserve_aspect_ratio: 是否保持原始比例（不裁剪为正方形）
     返回: (处理后的图片, 原始宽高比, 是否被裁剪)
     """
     try:
         img = Image.open(image_path)
         original_ratio = get_aspect_ratio(img)
-        
+
         # 检查是否需要裁剪（宽高比偏离 1:1 超过 5%）
         needs_crop = abs(original_ratio - 1.0) > 0.05
-        
-        if needs_crop:
+
+        # 如果不保持原始比例，且需要裁剪，则裁剪到正方形
+        if needs_crop and not preserve_aspect_ratio:
             # 裁剪到接近 1:1
             crop_box = find_closest_square_crop(img)
             img = img.crop(crop_box)
-        
+
         # 调整大小到目标宽度，保持宽高比
         aspect_ratio = get_aspect_ratio(img)
         new_height = int(target_width / aspect_ratio)
         img = img.resize((target_width, new_height), Image.Resampling.LANCZOS)
-        
+
         return img, original_ratio, needs_crop
     except FileNotFoundError:
         st.error(f"找不到图片文件: {image_path}")
@@ -205,6 +225,15 @@ def load_and_process_image(image_path: Path, target_width: int = 512) -> Tuple[O
     except Exception as e:
         st.error(f"加载图片 {image_path} 时出错: {e}")
         return None, 0.0, False
+
+
+def check_image_exists(base_dir: Path, image_rel_path: str) -> bool:
+    """检查图片文件是否存在"""
+    try:
+        image_path = base_dir / image_rel_path
+        return image_path.exists() and image_path.is_file()
+    except Exception:
+        return False
 
 
 def check_aspect_ratio_consistency(images_info: List[Tuple[str, float]]) -> bool:
@@ -278,6 +307,11 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
                 continue
 
             image_rel_path = sample["images"][method_name]
+
+            # 跳过不存在的图片文件
+            if not check_image_exists(base_dir, image_rel_path):
+                continue
+
             image_path = base_dir / image_rel_path
 
             # 加载原始图片
@@ -540,8 +574,12 @@ def main():
         st.session_state.next_crop_id_counter = 0
     if 'config_hash' not in st.session_state:
         st.session_state.config_hash = None
-    if 'wide_display_mode' not in st.session_state:
-        st.session_state.wide_display_mode = False
+    if 'text_size' not in st.session_state:
+        st.session_state.text_size = 16  # 默认 16px
+    if 'method_text_size' not in st.session_state:
+        st.session_state.method_text_size = 18  # 默认 18px
+    if 'preserve_aspect_ratio' not in st.session_state:
+        st.session_state.preserve_aspect_ratio = True
 
     # 迁移旧的crop数据格式到新格式
     migrate_crop_data_if_needed()
@@ -734,10 +772,31 @@ def main():
                 key="show_descriptions_checkbox"
             )
 
-            st.session_state.wide_display_mode = st.checkbox(
-                lang['wide_display_mode'],
-                value=st.session_state.wide_display_mode,
-                key="wide_display_mode_checkbox"
+            st.session_state.preserve_aspect_ratio = st.checkbox(
+                lang['preserve_aspect_ratio'],
+                value=st.session_state.preserve_aspect_ratio,
+                help=lang['preserve_aspect_ratio_help'],
+                key="preserve_aspect_ratio_checkbox"
+            )
+
+            st.session_state.text_size = st.slider(
+                lang['text_size_label'],
+                min_value=10,
+                max_value=24,
+                step=2,
+                value=st.session_state.text_size,
+                help=lang['text_size_help'],
+                key="text_size_slider"
+            )
+
+            st.session_state.method_text_size = st.slider(
+                lang['method_text_size_label'],
+                min_value=10,
+                max_value=24,
+                step=2,
+                value=st.session_state.method_text_size,
+                help=lang['method_text_size_help'],
+                key="method_text_size_slider"
             )
 
         # 将使用说明放在 expander 中
@@ -856,10 +915,19 @@ def main():
         st.divider()
 
         # Method selection for reference image
-        method_names = [m["name"] for m in methods if m["name"] in sample["images"]]
+        # 过滤掉图片不存在的方法
+        all_method_names = [m["name"] for m in methods if m["name"] in sample["images"]]
+        method_names = [
+            name for name in all_method_names
+            if check_image_exists(base_dir, sample["images"][name])
+        ]
+
+        # 显示可用图片数量
+        if len(method_names) < len(all_method_names):
+            st.info(lang['valid_methods_count'].format(n=len(method_names), total=len(all_method_names)))
 
         if not method_names:
-            st.error(lang['error_no_images'])
+            st.error(lang['no_valid_reference'])
             st.session_state.current_cropping_sample = None
             st.session_state.current_editing_crop_id = None
             st.rerun()
@@ -891,13 +959,8 @@ def main():
             with col_cropper:
                 st.markdown(f"**{lang['reference_image']}**")
 
-                # Dynamic width calculation based on wide display mode
-                # Wide mode: sidebar collapsed, more space available (~550px per column)
-                # Normal mode: sidebar open, less space (~420px per column)
-                if st.session_state.wide_display_mode:
-                    max_display_size = 550
-                else:
-                    max_display_size = 420
+                # Fixed display size for editing mode
+                max_display_size = 420
 
                 ref_w, ref_h = reference_img.size
                 scale = min(max_display_size / ref_w, max_display_size / ref_h)
@@ -913,7 +976,7 @@ def main():
                     display_ref_img,
                     realtime_update=True,
                     box_color=crop_color,
-                    aspect_ratio=(1, 1),
+                    aspect_ratio=None,
                     return_type='box',
                     key=f"cropper_{sample_idx}_{crop_id}"
                 )
@@ -936,6 +999,13 @@ def main():
 
                 # Get display size to maintain height consistency
                 display_size = st.session_state.get(f"display_size_{sample_idx}_{crop_id}", display_size)
+
+                # Display crop size and aspect ratio
+                if cropped_img and cropped_img.get('width', 0) > 0:
+                    crop_w = cropped_img['width']
+                    crop_h = cropped_img['height']
+                    crop_ar = crop_w / crop_h
+                    st.caption(f"Crop: {int(crop_w)}×{int(crop_h)}px (比例: {crop_ar:.2f}:1)")
 
                 # Generate real-time preview
                 if cropped_img and cropped_img.get('width', 0) > 0 and cropped_img.get('height', 0) > 0:
@@ -1023,7 +1093,9 @@ def main():
             image_path = base_dir / image_rel_path
 
             # 加载并处理图片
-            processed_img, original_ratio, was_cropped = load_and_process_image(image_path, image_width)
+            processed_img, original_ratio, was_cropped = load_and_process_image(
+                image_path, image_width, st.session_state.preserve_aspect_ratio
+            )
 
             if processed_img is not None:
                 # 如果有crop data且close view启用，在图片上绘制所有crop框
@@ -1066,7 +1138,8 @@ def main():
                 with col:
                     # 在图片上方显示方法名称（只在第一个样本显示，如果启用）
                     if st.session_state.show_method_name and row_idx == 0:
-                        st.caption(data["method_name"])
+                        method_size = st.session_state.method_text_size
+                        st.markdown(f"<span style='font-size: {method_size}px; font-weight: bold;'>{data['method_name']}</span>", unsafe_allow_html=True)
                     st.image(
                         data["image"],
                         use_container_width=True
@@ -1137,23 +1210,25 @@ def main():
         # 显示样本的 text 字段（如果启用）
         if st.session_state.show_text and "text" in sample and sample["text"]:
             text_label = "文本:" if st.session_state.language == 'zh' else "Text:"
+            text_size = st.session_state.text_size
             if st.session_state.show_sample_name:
                 # 显示加粗的样本名称 + text
-                st.markdown(f"<small><b>{sample['name']}</b> ｜ {text_label} {sample['text']}</small>", unsafe_allow_html=True)
+                st.markdown(f"<span style='font-size: {text_size}px;'><b>{sample['name']}</b> ｜ {text_label} {sample['text']}</span>", unsafe_allow_html=True)
             else:
                 # 只显示text
-                st.caption(f"{text_label} {sample['text']}")
+                st.markdown(f"<span style='font-size: {text_size}px;'>{text_label} {sample['text']}</span>", unsafe_allow_html=True)
         
         # 只在最后一行样本之后显示 method descriptions（如果启用）
         if row_idx == len(selected_samples) - 1 and st.session_state.show_descriptions:
             st.divider()
-            st.markdown(f"#### {lang['method_desc_title']}")
+            method_size = st.session_state.method_text_size
+            st.markdown(f"<span style='font-size: {method_size + 2}px; font-weight: bold;'>{lang['method_desc_title']}</span>", unsafe_allow_html=True)
             method_cols = st.columns(len(methods))
             for col, method in zip(method_cols, methods):
                 with col:
-                    st.markdown(f"**{method['name']}**")
+                    st.markdown(f"<span style='font-size: {method_size}px; font-weight: bold;'>{method['name']}</span>", unsafe_allow_html=True)
                     if method.get("description"):
-                        st.caption(method['description'])
+                        st.markdown(f"<span style='font-size: {method_size - 2}px; color: gray;'>{method['description']}</span>", unsafe_allow_html=True)
         
         # 添加分隔线（除了最后一个样本）
         if row_idx < len(selected_samples) - 1:

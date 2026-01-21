@@ -36,6 +36,8 @@ LANGUAGES = {
         'show_method_name': '显示方法名称 (Method Name)',
         'show_text': '显示样本文本 (Text)',
         'show_descriptions': '显示方法说明 (Descriptions)',
+        'show_reference': '显示参考图片 (Reference)',
+        'reference': 'Reference',
         'instructions': '📖 使用说明',
         'edit_crop': '✏️ Edit',
         'delete_crop': '🗑️ Delete',
@@ -86,6 +88,8 @@ LANGUAGES = {
         'show_method_name': 'Show Method Name',
         'show_text': 'Show Sample Text',
         'show_descriptions': 'Show Method Descriptions',
+        'show_reference': 'Show Reference Images',
+        'reference': 'Reference',
         'instructions': '📖 Instructions',
         'edit_crop': '✏️ Edit',
         'delete_crop': '🗑️ Delete',
@@ -163,6 +167,16 @@ def load_json_config(uploaded_file) -> Optional[Dict]:
     except Exception as e:
         st.error(f"加载配置文件时出错: {e}")
         return None
+
+
+def check_references_available(samples: List[Dict], base_dir: Path) -> bool:
+    """检查是否至少有一个 sample 有有效的 reference 图片"""
+    for sample in samples:
+        if "reference" in sample and sample["reference"]:
+            ref_path = base_dir / sample["reference"]
+            if ref_path.exists() and ref_path.is_file():
+                return True
+    return False
 
 
 def get_aspect_ratio(image: Image.Image) -> float:
@@ -321,6 +335,16 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
             # 应用裁剪
             cropped = apply_crop_to_image(img, box, target_width)
             cropped_images[method_name] = cropped
+
+        # 处理 reference 图片
+        if "reference" in sample and sample["reference"]:
+            ref_rel_path = sample["reference"]
+            if check_image_exists(base_dir, ref_rel_path):
+                ref_path = base_dir / ref_rel_path
+                ref_img = Image.open(ref_path)
+                original_sizes["__reference__"] = ref_img.size
+                cropped_ref = apply_crop_to_image(ref_img, box, target_width)
+                cropped_images["__reference__"] = cropped_ref
 
         # 创建新的crop对象
         new_crop = {
@@ -556,6 +580,8 @@ def main():
         st.session_state.show_sample_name = True
     if 'show_method_name' not in st.session_state:
         st.session_state.show_method_name = True
+    if 'show_reference' not in st.session_state:
+        st.session_state.show_reference = True
 
     # Close view session state
     if 'close_view_enabled' not in st.session_state:
@@ -646,6 +672,9 @@ def main():
     base_dir = Path(config["base_dir"])
     methods = config["methods"]
     samples = config["samples"]
+
+    # Check if any sample has reference images available
+    has_references = check_references_available(samples, base_dir)
 
     # Check if config has changed (clear crops if new config)
     current_config_hash = hash(json.dumps(config, sort_keys=True))
@@ -757,6 +786,15 @@ def main():
                 lang['show_method_name'],
                 value=st.session_state.show_method_name,
                 key="show_method_name_checkbox"
+            )
+
+            # 控制是否显示参考图片
+            st.session_state.show_reference = st.checkbox(
+                lang['show_reference'],
+                value=st.session_state.show_reference,
+                disabled=not has_references,
+                help="No reference images available in this dataset" if not has_references else None,
+                key="show_reference_checkbox"
             )
 
             # 控制是否显示 text 和 descriptions
@@ -915,12 +953,17 @@ def main():
         st.divider()
 
         # Method selection for reference image
-        # 过滤掉图片不存在的方法
+        # 收集可用的方法名称
         all_method_names = [m["name"] for m in methods if m["name"] in sample["images"]]
         method_names = [
             name for name in all_method_names
             if check_image_exists(base_dir, sample["images"][name])
         ]
+
+        # 添加 reference 到选择列表
+        if "reference" in sample and sample["reference"] and \
+           check_image_exists(base_dir, sample["reference"]):
+            method_names.append("__reference__")
 
         # 显示可用图片数量
         if len(method_names) < len(all_method_names):
@@ -936,20 +979,33 @@ def main():
         if st.session_state.cropper_reference_method is None or st.session_state.cropper_reference_method not in method_names:
             st.session_state.cropper_reference_method = method_names[0]
 
+        # 创建选项标签（为 reference 使用翻译后的名称）
+        method_options = []
+        for name in method_names:
+            if name == "__reference__":
+                method_options.append(lang['reference'])
+            else:
+                method_options.append(name)
+
         # Display method selection
         st.write(lang['select_reference_image'])
-        selected_method = st.radio(
+        selected_idx = st.radio(
             "Method",
-            method_names,
+            range(len(method_names)),
             index=method_names.index(st.session_state.cropper_reference_method),
+            format_func=lambda i: method_options[i],
             horizontal=True,
             label_visibility="collapsed"
         )
+        selected_method = method_names[selected_idx]
         st.session_state.cropper_reference_method = selected_method
 
         # Load reference image
         try:
-            image_rel_path = sample["images"][selected_method]
+            if selected_method == "__reference__":
+                image_rel_path = sample["reference"]
+            else:
+                image_rel_path = sample["images"][selected_method]
             image_path = base_dir / image_rel_path
             reference_img = Image.open(image_path)
 
@@ -1129,12 +1185,52 @@ def main():
                 aspect_ratios.append((method_name, original_ratio))
                 all_aspect_ratios.append((sample['name'], method_name, original_ratio))
 
+        # 加载 reference 图片
+        reference_image_data = None
+        if st.session_state.show_reference and has_references:
+            if "reference" in sample and sample["reference"]:
+                ref_rel_path = sample["reference"]
+                if check_image_exists(base_dir, ref_rel_path):
+                    ref_path = base_dir / ref_rel_path
+                    ref_img, ref_ratio, ref_cropped = load_and_process_image(
+                        ref_path, image_width, st.session_state.preserve_aspect_ratio
+                    )
+
+                    if ref_img is not None:
+                        # 如果有crop data且close view启用，在图片上绘制所有crop框
+                        if st.session_state.close_view_enabled and crop_data:
+                            try:
+                                original_img = Image.open(ref_path)
+                                original_size = original_img.size
+                                display_size = ref_img.size
+                                crops = crop_data.get('crops', [])
+                                if crops:
+                                    ref_img = draw_all_crop_boxes_on_image(
+                                        ref_img, crops, original_size, display_size
+                                    )
+                            except Exception:
+                                pass
+
+                        reference_image_data = {
+                            "image": ref_img,
+                            "original_ratio": ref_ratio,
+                            "was_cropped": ref_cropped,
+                            "path": ref_rel_path
+                        }
+                        # 添加到宽高比跟踪
+                        aspect_ratios.append(("Reference", ref_ratio))
+                        all_aspect_ratios.append((sample['name'], "Reference", ref_ratio))
+
         # 并排显示图片
         if images_data:
-            cols = st.columns(len(images_data))
+            # 判断是否显示 reference 列
+            show_ref_col = st.session_state.show_reference and has_references
+            # 计算总列数
+            num_cols = len(images_data) + (1 if show_ref_col else 0)
+            cols = st.columns(num_cols)
 
             # 渲染主图片
-            for idx, (col, data) in enumerate(zip(cols, images_data)):
+            for idx, (col, data) in enumerate(zip(cols[:len(images_data)], images_data)):
                 with col:
                     # 在图片上方显示方法名称（只在第一个样本显示，如果启用）
                     if st.session_state.show_method_name and row_idx == 0:
@@ -1144,6 +1240,22 @@ def main():
                         data["image"],
                         use_container_width=True
                     )
+
+            # 显示 reference 图片在最后一列
+            if show_ref_col:
+                with cols[-1]:
+                    if st.session_state.show_method_name and row_idx == 0:
+                        method_size = st.session_state.method_text_size
+                        st.markdown(
+                            f"<span style='font-size: {method_size}px; font-weight: bold;'>{lang['reference']}</span>",
+                            unsafe_allow_html=True
+                        )
+
+                    if reference_image_data:
+                        st.image(reference_image_data["image"], use_container_width=True)
+                    else:
+                        # 显示占位符（没有 reference 的 sample）
+                        st.info("No reference")
 
             # Display multiple cropped close views vertically
             if st.session_state.close_view_enabled and crop_data:
@@ -1179,13 +1291,21 @@ def main():
                                     delete_crop_from_sample(actual_sample_idx, crop['id'])
                                     st.rerun()
 
-                    # Cropped images in columns
-                    crop_cols = st.columns(len(images_data))
-                    for col_idx, (col, data) in enumerate(zip(crop_cols, images_data)):
+                    # Cropped images in columns (保持与主显示相同的列数)
+                    crop_cols = st.columns(num_cols)
+                    for col_idx, (col, data) in enumerate(zip(crop_cols[:len(images_data)], images_data)):
                         with col:
                             method_name = data["method_name"]
                             if method_name in crop['cropped_images']:
                                 st.image(crop['cropped_images'][method_name], use_container_width=True)
+
+                    # 显示 reference 的裁剪图片
+                    if show_ref_col:
+                        with crop_cols[-1]:
+                            if "__reference__" in crop['cropped_images']:
+                                st.image(crop['cropped_images']['__reference__'], use_container_width=True)
+                            else:
+                                st.info("No reference")
 
             # Add Crop button at the bottom if close view is enabled and button is set to show
             if st.session_state.close_view_enabled and st.session_state.show_edit_crop_button:
@@ -1223,12 +1343,22 @@ def main():
             st.divider()
             method_size = st.session_state.method_text_size
             st.markdown(f"<span style='font-size: {method_size + 2}px; font-weight: bold;'>{lang['method_desc_title']}</span>", unsafe_allow_html=True)
-            method_cols = st.columns(len(methods))
-            for col, method in zip(method_cols, methods):
+
+            # 计算列数（包括 reference）
+            num_desc_cols = len(methods) + (1 if (st.session_state.show_reference and has_references) else 0)
+            method_cols = st.columns(num_desc_cols)
+
+            # 显示 methods 描述
+            for col, method in zip(method_cols[:len(methods)], methods):
                 with col:
                     st.markdown(f"<span style='font-size: {method_size}px; font-weight: bold;'>{method['name']}</span>", unsafe_allow_html=True)
                     if method.get("description"):
                         st.markdown(f"<span style='font-size: {method_size - 2}px; color: gray;'>{method['description']}</span>", unsafe_allow_html=True)
+
+            # 添加 reference 列标签
+            if st.session_state.show_reference and has_references:
+                with method_cols[-1]:
+                    st.markdown(f"<span style='font-size: {method_size}px; font-weight: bold;'>{lang['reference']}</span>", unsafe_allow_html=True)
         
         # 添加分隔线（除了最后一个样本）
         if row_idx < len(selected_samples) - 1:

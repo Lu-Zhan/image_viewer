@@ -6,6 +6,14 @@ import io
 from typing import Dict, List, Tuple, Optional
 from streamlit_cropper import st_cropper
 import time
+import numpy as np
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Image as RLImage, Table, TableStyle, Paragraph, Spacer, Flowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 
 # Language configurations
@@ -28,7 +36,7 @@ LANGUAGES = {
         'close_view': '🔍 Close View',
         'enable': '启用',
         'close_view_help': '启用裁剪功能以查看所有方法的详细区域',
-        'show_edit_button': '显示 Edit Crop 按钮',
+        'show_edit_button': '显示Edit按钮',
         'show_edit_help': '控制是否显示编辑裁剪按钮',
         'clear_all_crops': 'Clear All Crops',
         'display_options': '🎨 显示选项',
@@ -61,6 +69,14 @@ LANGUAGES = {
         'method_text_size_help': '调整方法名称和说明显示大小（10-24px）',
         'preserve_aspect_ratio': '保持原始比例',
         'preserve_aspect_ratio_help': '不裁剪为正方形，完整显示图片',
+        'save_pdf_tooltip': '保存当前页面为PDF',
+        'save_pdf_disabled_tooltip': '请先完成裁剪编辑',
+        'save_pdf_generating': '正在生成PDF...',
+        'save_pdf_filename': '图片查看器导出',
+        'use_mask': '使用 Mask',
+        'use_mask_help': '对图片应用 mask 效果：mask > 0 的区域正常显示，其余区域变暗',
+        'darken_factor_label': '变暗系数',
+        'darken_factor_help': 'mask = 0 区域变暗的系数',
     },
     'en': {
         'page_title': 'ImageViewer',
@@ -80,7 +96,7 @@ LANGUAGES = {
         'close_view': '🔍 Close View',
         'enable': 'Enable',
         'close_view_help': 'Enable cropping feature to view detailed regions across all methods',
-        'show_edit_button': 'Show Edit Crop Button',
+        'show_edit_button': 'Show Edit Button',
         'show_edit_help': 'Control whether to show edit crop buttons',
         'clear_all_crops': 'Clear All Crops',
         'display_options': '🎨 Display Options',
@@ -113,6 +129,14 @@ LANGUAGES = {
         'method_text_size_help': 'Adjust method name and description display size (10-24px)',
         'preserve_aspect_ratio': 'Preserve aspect ratio',
         'preserve_aspect_ratio_help': 'Display full image without cropping to square',
+        'save_pdf_tooltip': 'Save current page as PDF',
+        'save_pdf_disabled_tooltip': 'Please finish crop editing first',
+        'save_pdf_generating': 'Generating PDF...',
+        'save_pdf_filename': 'image_viewer_export',
+        'use_mask': 'Use Mask',
+        'use_mask_help': 'Apply mask effect: show mask > 0 areas normally, darken others',
+        'darken_factor_label': 'Darken Factor',
+        'darken_factor_help': 'Darken factor for mask = 0 regions',
     }
 }
 
@@ -175,6 +199,16 @@ def check_references_available(samples: List[Dict], base_dir: Path) -> bool:
         if "reference" in sample and sample["reference"]:
             ref_path = base_dir / sample["reference"]
             if ref_path.exists() and ref_path.is_file():
+                return True
+    return False
+
+
+def check_masks_available(samples: List[Dict], base_dir: Path) -> bool:
+    """检查是否至少有一个 sample 有有效的 mask 图片"""
+    for sample in samples:
+        if "mask" in sample and sample["mask"]:
+            mask_path = base_dir / sample["mask"]
+            if mask_path.exists() and mask_path.is_file():
                 return True
     return False
 
@@ -289,6 +323,72 @@ def apply_crop_to_image(image: Image.Image, box: Tuple[int, int, int, int], targ
     resized = cropped.resize((target_width, new_height), Image.Resampling.LANCZOS)
 
     return resized
+
+
+def load_mask(mask_path: Path, target_size: Tuple[int, int]) -> Optional[Image.Image]:
+    """
+    加载 mask 图片并调整到目标尺寸
+    参数:
+        mask_path: mask 图片路径
+        target_size: 目标尺寸 (width, height)
+    返回:
+        处理后的 mask 图片（灰度），如果加载失败返回 None
+    """
+    try:
+        mask = Image.open(mask_path)
+        # 转换为灰度图
+        if mask.mode != 'L':
+            mask = mask.convert('L')
+        # 调整到目标尺寸
+        if mask.size != target_size:
+            mask = mask.resize(target_size, Image.Resampling.LANCZOS)
+        return mask
+    except Exception as e:
+        # 静默失败，不在UI显示错误
+        return None
+
+
+def apply_mask_to_image(image: Image.Image, mask: Image.Image, overlay_opacity: float = 0.5) -> Image.Image:
+    """
+    对图片应用 mask 效果：mask > 0 的区域正常显示，其余区域应用半透明黑色叠加层
+    参数:
+        image: 要处理的 PIL Image 对象
+        mask: mask 图片（灰度）
+        overlay_opacity: 叠加层不透明度（默认 0.5，即变暗 50%）
+    返回:
+        应用 mask 后的图片
+    """
+    try:
+        # 确保 mask 尺寸与图片匹配
+        if mask.size != image.size:
+            mask = mask.resize(image.size, Image.Resampling.LANCZOS)
+        
+        # 转换为 numpy 数组进行处理
+        img_array = np.array(image).astype(np.float32)
+        mask_array = np.array(mask).astype(np.float32)
+        
+        # 创建 mask 条件：mask > 0 为 True
+        mask_condition = mask_array > 0
+        
+        # 对于 mask <= 0 的区域，应用半透明黑色叠加
+        # 效果：将像素值乘以 (1 - overlay_opacity)，即变暗
+        darkened = img_array * (1 - overlay_opacity)
+        
+        # 根据 mask 条件选择：mask > 0 保持原样，mask <= 0 变暗
+        if len(img_array.shape) == 3:  # RGB/RGBA 图片
+            # 扩展 mask 维度以匹配彩色图片
+            mask_condition_3d = np.stack([mask_condition] * img_array.shape[2], axis=2)
+            result = np.where(mask_condition_3d, img_array, darkened)
+        else:  # 灰度图片
+            result = np.where(mask_condition, img_array, darkened)
+        
+        # 转换回 PIL Image
+        result = np.clip(result, 0, 255).astype(np.uint8)
+        return Image.fromarray(result, mode=image.mode)
+    
+    except Exception as e:
+        # 如果应用失败，返回原始图片
+        return image
 
 
 def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
@@ -418,6 +518,436 @@ def migrate_crop_data_if_needed():
                     'original_sizes': data.get('original_sizes', {})
                 }]
             }
+
+
+def pil_image_to_rl_image(pil_img: Image.Image, max_width: float, max_height: float) -> RLImage:
+    """
+    将PIL Image转换为reportlab Image对象
+    参数:
+        pil_img: PIL Image对象
+        max_width: 最大宽度（点）
+        max_height: 最大高度（点）
+    返回:
+        reportlab Image对象
+    """
+    # 保存到BytesIO
+    img_buffer = io.BytesIO()
+    pil_img.save(img_buffer, format='PNG')
+    img_buffer.seek(0)
+    
+    # 计算合适的尺寸，保持宽高比
+    img_width, img_height = pil_img.size
+    aspect_ratio = img_width / img_height
+    
+    # 按宽度或高度限制缩放
+    if img_width / max_width > img_height / max_height:
+        # 宽度限制
+        width = max_width
+        height = max_width / aspect_ratio
+    else:
+        # 高度限制
+        height = max_height
+        width = max_height * aspect_ratio
+    
+    return RLImage(img_buffer, width=width, height=height)
+
+
+class ColoredSquare(Flowable):
+    """带颜色边框的方块Flowable，用于Close View标题"""
+    def __init__(self, size=3*mm, color='#00ff00'):
+        Flowable.__init__(self)
+        self.size = size
+        self.color = colors.HexColor(color)
+        self.width = size
+        self.height = size
+    
+    def draw(self):
+        """绘制带黑边的彩色方块"""
+        self.canv.setFillColor(self.color)
+        self.canv.setStrokeColor(colors.black)
+        self.canv.setLineWidth(0.5)
+        self.canv.rect(0, 0, self.size, self.size, fill=1, stroke=1)
+
+
+def generate_pdf_from_current_view(
+    samples: List[Dict],
+    methods: List[Dict],
+    base_dir: Path,
+    start_idx: int,
+    num_rows: int,
+    show_method_name: bool,
+    show_text: bool,
+    show_sample_name: bool,
+    show_descriptions: bool,
+    show_reference: bool,
+    has_references: bool,
+    close_view_enabled: bool,
+    crop_data: Dict,
+    preserve_aspect_ratio: bool,
+    lang: Dict,
+    use_mask: bool = False,
+    darken_factor: float = 0.5,
+    image_width: int = 800
+) -> bytes:
+    """
+    生成当前视图的PDF
+    返回: PDF二进制数据
+    """
+    overlay_opacity = darken_factor  # Rename for clarity in function
+    
+    # 创建PDF缓冲区
+    buffer = io.BytesIO()
+    
+    # 使用横向A4页面
+    page_width, page_height = landscape(A4)
+    
+    # 创建PDF文档
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        leftMargin=1*mm,
+        rightMargin=1*mm,
+        topMargin=1*mm,
+        bottomMargin=1*mm
+    )
+    
+    # 获取样式
+    styles = getSampleStyleSheet()
+    
+    # 创建自定义样式
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading2'],
+        fontSize=12,
+        spaceAfter=3*mm,
+        alignment=1  # 居中
+    )
+    
+    text_style = ParagraphStyle(
+        'CustomText',
+        parent=styles['Normal'],
+        fontSize=9,
+        spaceAfter=1*mm,
+        spaceBefore=1*mm
+    )
+    
+    method_name_style = ParagraphStyle(
+        'MethodName',
+        parent=styles['Normal'],
+        fontSize=8,
+        alignment=1,  # 居中
+        spaceAfter=0.5*mm
+    )
+    
+    # 构建内容
+    elements = []
+    
+    # 确定要显示的样本范围
+    end_idx = min(start_idx + num_rows, len(samples))
+    selected_samples = samples[start_idx:end_idx]
+    
+    # 计算可用宽度
+    available_width = page_width - 2*mm  # 减去左右边距（1mm×2）
+    
+    # 计算列数
+    num_methods = len(methods)
+    num_cols = num_methods + (1 if (show_reference and has_references) else 0)
+    
+    # 列间距（约10px = 3.5mm）
+    col_spacing = 3.5*mm
+    
+    # 每列图片的最大宽度和高度
+    # 总间距 = (列数-1) × 列间距
+    total_spacing = (num_cols - 1) * col_spacing if num_cols > 1 else 0
+    col_width = (available_width - total_spacing) / num_cols
+    max_img_height = 60*mm  # 主图片的最大高度
+    
+    for row_idx, sample in enumerate(selected_samples):
+        actual_sample_idx = start_idx + row_idx
+        sample_crop_data = crop_data.get(actual_sample_idx, None)
+        
+        # Sample名称标题（左对齐）
+        if show_sample_name:
+            sample_title_style = ParagraphStyle(
+                'SampleTitle',
+                parent=styles['Normal'],
+                fontSize=10,
+                alignment=0,  # 左对齐
+                leftIndent=0,
+                spaceBefore=2*mm if row_idx > 0 else 0,
+                spaceAfter=2*mm
+            )
+            sample_name_para = Paragraph(f"<b>Sample: {sample['name']}</b>", sample_title_style)
+            elements.append(sample_name_para)
+        
+        # 方法名称行（只在第一个样本时显示）
+        if show_method_name and row_idx == 0:
+            method_names_row = []
+            for method in methods:
+                method_names_row.append(Paragraph(method['name'], method_name_style))
+            
+            if show_reference and has_references:
+                method_names_row.append(Paragraph(lang['reference'], method_name_style))
+            
+            # 创建方法名称表格
+            name_table = Table([method_names_row], colWidths=[col_width] * num_cols)
+            name_table.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (0, -1), 0),                    # 第一列左边无padding
+                ('RIGHTPADDING', (-1, 0), (-1, -1), 0),                 # 最后一列右边无padding
+                ('LEFTPADDING', (1, 0), (-1, -1), col_spacing/2),       # 其他列左边padding
+                ('RIGHTPADDING', (0, 0), (-2, -1), col_spacing/2),      # 其他列右边padding
+            ]))
+            elements.append(name_table)
+            elements.append(Spacer(1, 2*mm))
+        
+        # 收集主图片
+        images_row = []
+        for method in methods:
+            method_name = method["name"]
+            
+            if method_name not in sample["images"]:
+                images_row.append(Paragraph("N/A", text_style))
+                continue
+            
+            image_rel_path = sample["images"][method_name]
+            image_path = base_dir / image_rel_path
+            
+            if not check_image_exists(base_dir, image_rel_path):
+                images_row.append(Paragraph("Missing", text_style))
+                continue
+            
+            try:
+                # 加载并处理图片
+                processed_img, _, _ = load_and_process_image(
+                    image_path, image_width, preserve_aspect_ratio
+                )
+                
+                if processed_img is not None:
+                    # 应用 mask（如果启用且存在）
+                    if use_mask and "mask" in sample and sample["mask"]:
+                        mask_path = base_dir / sample["mask"]
+                        if check_image_exists(base_dir, sample["mask"]):
+                            mask_img = load_mask(mask_path, processed_img.size)
+                            if mask_img is not None:
+                                processed_img = apply_mask_to_image(processed_img, mask_img, overlay_opacity)
+                    
+                    # 如果有crop data且close view启用，绘制裁剪框
+                    if close_view_enabled and sample_crop_data:
+                        try:
+                            original_img = Image.open(image_path)
+                            original_size = original_img.size
+                            display_size = processed_img.size
+                            crops = sample_crop_data.get('crops', [])
+                            if crops:
+                                processed_img = draw_all_crop_boxes_on_image(
+                                    processed_img, crops, original_size, display_size
+                                )
+                        except Exception:
+                            pass
+                    
+                    rl_img = pil_image_to_rl_image(processed_img, col_width, max_img_height)
+                    images_row.append(rl_img)
+                else:
+                    images_row.append(Paragraph("Error", text_style))
+            except Exception as e:
+                images_row.append(Paragraph("Error", text_style))
+        
+        # 添加reference图片
+        if show_reference and has_references:
+            if "reference" in sample and sample["reference"]:
+                ref_rel_path = sample["reference"]
+                if check_image_exists(base_dir, ref_rel_path):
+                    ref_path = base_dir / ref_rel_path
+                    try:
+                        ref_img, _, _ = load_and_process_image(
+                            ref_path, image_width, preserve_aspect_ratio
+                        )
+                        if ref_img is not None:
+                            # 应用 mask（如果启用且存在）
+                            if use_mask and "mask" in sample and sample["mask"]:
+                                mask_path = base_dir / sample["mask"]
+                                if check_image_exists(base_dir, sample["mask"]):
+                                    mask_img = load_mask(mask_path, ref_img.size)
+                                    if mask_img is not None:
+                                        ref_img = apply_mask_to_image(ref_img, mask_img, overlay_opacity)
+                            
+                            # 如果有crop data且close view启用，绘制裁剪框
+                            if close_view_enabled and sample_crop_data:
+                                try:
+                                    original_img = Image.open(ref_path)
+                                    original_size = original_img.size
+                                    display_size = ref_img.size
+                                    crops = sample_crop_data.get('crops', [])
+                                    if crops:
+                                        ref_img = draw_all_crop_boxes_on_image(
+                                            ref_img, crops, original_size, display_size
+                                        )
+                                except Exception:
+                                    pass
+                            
+                            rl_img = pil_image_to_rl_image(ref_img, col_width, max_img_height)
+                            images_row.append(rl_img)
+                        else:
+                            images_row.append(Paragraph("Error", text_style))
+                    except Exception:
+                        images_row.append(Paragraph("Error", text_style))
+                else:
+                    images_row.append(Paragraph("Missing", text_style))
+            else:
+                images_row.append(Paragraph("No ref", text_style))
+        
+        # 创建图片表格，添加行间距
+        img_table = Table([images_row], colWidths=[col_width] * num_cols, rowHeights=None)
+        img_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (0, -1), 0),                    # 第一列左边无padding
+            ('RIGHTPADDING', (-1, 0), (-1, -1), 0),                 # 最后一列右边无padding
+            ('LEFTPADDING', (1, 0), (-1, -1), col_spacing/2),       # 其他列左边padding
+            ('RIGHTPADDING', (0, 0), (-2, -1), col_spacing/2),      # 其他列右边padding
+            ('TOPPADDING', (0, 0), (-1, -1), 1*mm),                 # 上方padding
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1*mm),              # 下方padding
+        ]))
+        elements.append(img_table)
+        
+        # 显示Close Views（如果启用）
+        if close_view_enabled and sample_crop_data:
+            crops = sample_crop_data.get('crops', [])
+            
+            for crop_idx, crop in enumerate(crops):
+                elements.append(Spacer(1, 1*mm))
+                
+                # 获取crop颜色和ID
+                color = crop['color']
+                crop_id = crop.get('id', f'crop_{crop_idx}')
+                
+                # 创建Close View标题样式（左对齐，不加粗）
+                close_view_style = ParagraphStyle(
+                    'CloseViewTitle',
+                    parent=styles['Normal'],
+                    fontSize=8,
+                    alignment=0,  # 左对齐
+                    leftIndent=0,
+                    spaceAfter=2*mm
+                )
+                
+                # 创建彩色方块
+                color_square = ColoredSquare(size=2*mm, color=color)
+                
+                # 创建标题文字（不加粗）
+                title_text = Paragraph(f"Close View #{crop_idx + 1}", close_view_style)
+                
+                # 使用Table组合方块和文字，左侧padding与第一列图片对齐
+                first_col_left_padding = (available_width - total_spacing) / num_cols
+                # 计算标题表格的宽度和位置，使其与图片表格第一列对齐
+                title_row = [[color_square, title_text]]
+                title_table = Table(
+                    title_row,
+                    colWidths=[4*mm, available_width - 4*mm],
+                    rowHeights=[4*mm]
+                )
+                title_table.setStyle(TableStyle([
+                    ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+                    ('ALIGN', (1, 0), (1, 0), 'LEFT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                    ('TOPPADDING', (0, 0), (-1, -1), 0),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                ]))
+                
+                elements.append(title_table)
+                
+                # 收集裁剪后的图片（Close View不应用mask）
+                cropped_row = []
+                for method in methods:
+                    method_name = method["name"]
+                    if method_name in crop.get('cropped_images', {}):
+                        cropped_img = crop['cropped_images'][method_name]
+                        rl_img = pil_image_to_rl_image(cropped_img, col_width, max_img_height)
+                        cropped_row.append(rl_img)
+                    else:
+                        cropped_row.append(Paragraph("N/A", text_style))
+                
+                # 添加reference的裁剪图片（Close View不应用mask）
+                if show_reference and has_references:
+                    if "__reference__" in crop.get('cropped_images', {}):
+                        cropped_ref = crop['cropped_images']['__reference__']
+                        rl_img = pil_image_to_rl_image(cropped_ref, col_width, max_img_height)
+                        cropped_row.append(rl_img)
+                    else:
+                        cropped_row.append(Paragraph("No ref", text_style))
+                
+                # 创建裁剪图片表格，添加行间距
+                crop_table = Table([cropped_row], colWidths=[col_width] * num_cols, rowHeights=None)
+                crop_table.setStyle(TableStyle([
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('LEFTPADDING', (0, 0), (0, -1), 0),                    # 第一列左边无padding
+                    ('RIGHTPADDING', (-1, 0), (-1, -1), 0),                 # 最后一列右边无padding
+                    ('LEFTPADDING', (1, 0), (-1, -1), col_spacing/2),       # 其他列左边padding
+                    ('RIGHTPADDING', (0, 0), (-2, -1), col_spacing/2),      # 其他列右边padding
+                    ('TOPPADDING', (0, 0), (-1, -1), 1*mm),                 # 上方padding
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 1*mm),              # 下方padding
+                ]))
+                elements.append(crop_table)
+                
+                # 添加Close View之间的行间距
+                if crop_idx < len(crops) - 1:
+                    elements.append(Spacer(1, 2*mm))
+        
+        # 显示样本文本
+        if show_text and "text" in sample and sample["text"]:
+            elements.append(Spacer(1, 1*mm))
+            if show_sample_name:
+                text_content = f"<b>{sample['name']}</b> | Text: {sample['text']}"
+            else:
+                text_content = f"Text: {sample['text']}"
+            elements.append(Paragraph(text_content, text_style))
+        
+        # 样本之间添加分隔
+        if row_idx < len(selected_samples) - 1:
+            elements.append(Spacer(1, 3*mm))
+    
+    # 方法描述（在最后显示）
+    if show_descriptions:
+        elements.append(Spacer(1, 5*mm))
+        elements.append(Paragraph(lang['method_desc_title'], title_style))
+        
+        desc_data = []
+        for method in methods:
+            desc = method.get('description', '')
+            desc_data.append([
+                Paragraph(f"<b>{method['name']}</b>", text_style),
+                Paragraph(desc if desc else "-", text_style)
+            ])
+        
+        if show_reference and has_references:
+            desc_data.append([
+                Paragraph(f"<b>{lang['reference']}</b>", text_style),
+                Paragraph("-", text_style)
+            ])
+        
+        desc_table = Table(desc_data, colWidths=[50*mm, available_width - 55*mm])
+        desc_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 1*mm),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1*mm),
+        ]))
+        elements.append(desc_table)
+    
+    # 构建PDF
+    doc.build(elements)
+    
+    # 获取PDF数据
+    pdf_data = buffer.getvalue()
+    buffer.close()
+    
+    return pdf_data
 
 
 def draw_crop_box_on_image(image: Image.Image, box: Tuple[int, int, int, int],
@@ -606,6 +1136,12 @@ def main():
         st.session_state.method_text_size = 18  # 默认 18px
     if 'preserve_aspect_ratio' not in st.session_state:
         st.session_state.preserve_aspect_ratio = True
+    
+    # Mask session state
+    if 'use_mask' not in st.session_state:
+        st.session_state.use_mask = False
+    if 'darken_factor' not in st.session_state:
+        st.session_state.darken_factor = 1.0  # Default 100% darkening
 
     # 迁移旧的crop数据格式到新格式
     migrate_crop_data_if_needed()
@@ -675,6 +1211,9 @@ def main():
 
     # Check if any sample has reference images available
     has_references = check_references_available(samples, base_dir)
+    
+    # Check if any sample has mask images available
+    has_masks = check_masks_available(samples, base_dir)
 
     # Check if config has changed (clear crops if new config)
     current_config_hash = hash(json.dumps(config, sort_keys=True))
@@ -836,6 +1375,26 @@ def main():
                 help=lang['method_text_size_help'],
                 key="method_text_size_slider"
             )
+            
+            # Mask controls (only show if masks are available)
+            if has_masks:
+                st.session_state.use_mask = st.checkbox(
+                    lang['use_mask'],
+                    value=st.session_state.use_mask,
+                    help=lang['use_mask_help'],
+                    key="use_mask_checkbox"
+                )
+                
+                if st.session_state.use_mask:
+                    st.session_state.darken_factor = st.slider(
+                        lang['darken_factor_label'],
+                        min_value=0.0,
+                        max_value=1.0,
+                        step=0.1,
+                        value=st.session_state.darken_factor,
+                        help=lang['darken_factor_help'],
+                        key="darken_factor_slider"
+                    )
 
         # 将使用说明放在 expander 中
         with st.expander(lang['instructions'], expanded=False):
@@ -903,6 +1462,114 @@ def main():
         """,
         unsafe_allow_html=True
     )
+
+    # 右上角添加保存PDF按钮
+    # 使用container来确保按钮在右上角
+    header_col1, header_col2 = st.columns([0.9, 0.1])
+    with header_col2:
+        # 检查是否正在编辑crop
+        is_editing_crop = st.session_state.current_cropping_sample is not None
+        
+        if is_editing_crop:
+            # 正在编辑时禁用按钮，显示tooltip
+            st.button(
+                "📥 Export",
+                disabled=True,
+                help=lang['save_pdf_disabled_tooltip'],
+                key="save_pdf_btn"
+            )
+        else:
+            # 生成PDF数据
+            @st.cache_data
+            def get_pdf_data(
+                _samples, _methods, _base_dir_str,
+                _start_idx, _num_rows,
+                _show_method_name, _show_text, _show_sample_name,
+                _show_descriptions, _show_reference, _has_references,
+                _close_view_enabled, _crop_data_str, _preserve_aspect_ratio,
+                _lang_key, _image_width
+            ):
+                """缓存PDF生成结果"""
+                import json as json_module
+                crop_data_dict = json_module.loads(_crop_data_str) if _crop_data_str else {}
+                # 将字符串键转换回整数键
+                crop_data_int = {int(k): v for k, v in crop_data_dict.items()}
+                
+                # 重新构建crop_data中的PIL Image对象
+                # 由于PIL Image不能序列化，需要从原始路径重新生成
+                for sample_idx_key, sample_crop in crop_data_int.items():
+                    if 'crops' in sample_crop:
+                        for crop in sample_crop['crops']:
+                            # 重新生成裁剪后的图片
+                            if 'box' in crop and 'cropped_images' not in crop:
+                                # 需要重新生成
+                                pass
+                
+                lang_dict = LANGUAGES[_lang_key]
+                return generate_pdf_from_current_view(
+                    samples=_samples,
+                    methods=_methods,
+                    base_dir=Path(_base_dir_str),
+                    start_idx=_start_idx,
+                    num_rows=_num_rows,
+                    show_method_name=_show_method_name,
+                    show_text=_show_text,
+                    show_sample_name=_show_sample_name,
+                    show_descriptions=_show_descriptions,
+                    show_reference=_show_reference,
+                    has_references=_has_references,
+                    close_view_enabled=_close_view_enabled,
+                    crop_data=crop_data_int,
+                    preserve_aspect_ratio=_preserve_aspect_ratio,
+                    lang=lang_dict,
+                    image_width=_image_width
+                )
+            
+            # 由于crop_data包含PIL Image对象，需要特殊处理
+            # 直接生成PDF而不使用缓存
+            try:
+                pdf_bytes = generate_pdf_from_current_view(
+                    samples=samples,
+                    methods=methods,
+                    base_dir=base_dir,
+                    start_idx=start_idx,
+                    num_rows=num_rows,
+                    show_method_name=st.session_state.show_method_name,
+                    show_text=st.session_state.show_text,
+                    show_sample_name=st.session_state.show_sample_name,
+                    show_descriptions=st.session_state.show_descriptions,
+                    show_reference=st.session_state.show_reference,
+                    has_references=has_references,
+                    close_view_enabled=st.session_state.close_view_enabled,
+                    crop_data=st.session_state.crop_data,
+                    preserve_aspect_ratio=st.session_state.preserve_aspect_ratio,
+                    lang=lang,
+                    use_mask=st.session_state.use_mask,
+                    darken_factor=st.session_state.darken_factor,
+                    image_width=image_width
+                )
+                
+                # 生成文件名
+                sample_name = samples[start_idx]['name'] if samples else 'export'
+                # 清理文件名中的非法字符
+                safe_name = "".join(c for c in sample_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                filename = f"{lang['save_pdf_filename']}_{safe_name}.pdf"
+                
+                st.download_button(
+                    label="📥 Export",
+                    data=pdf_bytes,
+                    file_name=filename,
+                    mime="application/pdf",
+                    help=lang['save_pdf_tooltip'],
+                    key="save_pdf_btn"
+                )
+            except Exception as e:
+                st.button(
+                    "📥",
+                    disabled=True,
+                    help=f"Error: {str(e)}",
+                    key="save_pdf_btn"
+                )
 
     # Crop selection interface
     if st.session_state.current_cropping_sample is not None:
@@ -1025,6 +1692,14 @@ def main():
                     (int(ref_w * scale), int(ref_h * scale)),
                     Image.Resampling.LANCZOS
                 )
+                
+                # Apply mask to reference image in cropper if enabled
+                if st.session_state.use_mask and "mask" in sample and sample["mask"]:
+                    mask_path = base_dir / sample["mask"]
+                    if check_image_exists(base_dir, sample["mask"]):
+                        mask_img = load_mask(mask_path, display_ref_img.size)
+                        if mask_img is not None:
+                            display_ref_img = apply_mask_to_image(display_ref_img, mask_img, st.session_state.darken_factor)
 
                 # Display cropper with crop's color
                 # Ensure reference image is fully displayed
@@ -1075,6 +1750,15 @@ def main():
 
                     # Apply crop and show preview (resized to 1:1)
                     preview_img = apply_crop_to_image(reference_img, box, image_width)
+                    
+                    # Apply mask to preview if enabled
+                    if st.session_state.use_mask and "mask" in sample and sample["mask"]:
+                        mask_path = base_dir / sample["mask"]
+                        if check_image_exists(base_dir, sample["mask"]):
+                            mask_img = load_mask(mask_path, preview_img.size)
+                            if mask_img is not None:
+                                preview_img = apply_mask_to_image(preview_img, mask_img, st.session_state.darken_factor)
+                    
                     st.image(preview_img, width=display_size)
                 else:
                     # Show placeholder when no crop is drawn
@@ -1154,6 +1838,14 @@ def main():
             )
 
             if processed_img is not None:
+                # 应用 mask（如果启用且存在）
+                if st.session_state.use_mask and "mask" in sample and sample["mask"]:
+                    mask_path = base_dir / sample["mask"]
+                    if check_image_exists(base_dir, sample["mask"]):
+                        mask_img = load_mask(mask_path, processed_img.size)
+                        if mask_img is not None:
+                            processed_img = apply_mask_to_image(processed_img, mask_img, st.session_state.darken_factor)
+                
                 # 如果有crop data且close view启用，在图片上绘制所有crop框
                 if st.session_state.close_view_enabled and crop_data:
                     try:
@@ -1197,6 +1889,14 @@ def main():
                     )
 
                     if ref_img is not None:
+                        # 应用 mask（如果启用且存在）
+                        if st.session_state.use_mask and "mask" in sample and sample["mask"]:
+                            mask_path = base_dir / sample["mask"]
+                            if check_image_exists(base_dir, sample["mask"]):
+                                mask_img = load_mask(mask_path, ref_img.size)
+                                if mask_img is not None:
+                                    ref_img = apply_mask_to_image(ref_img, mask_img, st.session_state.darken_factor)
+                        
                         # 如果有crop data且close view启用，在图片上绘制所有crop框
                         if st.session_state.close_view_enabled and crop_data:
                             try:
@@ -1263,6 +1963,7 @@ def main():
 
                 for crop_idx, crop in enumerate(crops):
                     color = crop['color']
+                    crop_id = crop['id']
 
                     # Close View title with color indicator and Edit/Delete buttons if enabled
                     title_cols = st.columns([1, 5])
@@ -1280,15 +1981,15 @@ def main():
                         with title_cols[1]:
                             button_cols = st.columns([1, 1, 4])
                             with button_cols[0]:
-                                if st.button(lang['edit_crop'], key=f"edit_crop_{actual_sample_idx}_{crop['id']}", use_container_width=True):
+                                if st.button(lang['edit_crop'], key=f"edit_crop_{actual_sample_idx}_{crop_id}", use_container_width=True):
                                     st.session_state.current_cropping_sample = actual_sample_idx
-                                    st.session_state.current_editing_crop_id = crop['id']
+                                    st.session_state.current_editing_crop_id = crop_id
                                     st.session_state.cropper_reference_method = None
                                     st.rerun()
 
                             with button_cols[1]:
-                                if st.button(lang['delete_crop'], key=f"delete_crop_{actual_sample_idx}_{crop['id']}", use_container_width=True):
-                                    delete_crop_from_sample(actual_sample_idx, crop['id'])
+                                if st.button(lang['delete_crop'], key=f"delete_crop_{actual_sample_idx}_{crop_id}", use_container_width=True):
+                                    delete_crop_from_sample(actual_sample_idx, crop_id)
                                     st.rerun()
 
                     # Cropped images in columns (保持与主显示相同的列数)
@@ -1297,13 +1998,15 @@ def main():
                         with col:
                             method_name = data["method_name"]
                             if method_name in crop['cropped_images']:
-                                st.image(crop['cropped_images'][method_name], use_container_width=True)
+                                cropped_img = crop['cropped_images'][method_name]
+                                st.image(cropped_img, use_container_width=True)
 
                     # 显示 reference 的裁剪图片
                     if show_ref_col:
                         with crop_cols[-1]:
                             if "__reference__" in crop['cropped_images']:
-                                st.image(crop['cropped_images']['__reference__'], use_container_width=True)
+                                ref_cropped_img = crop['cropped_images']['__reference__']
+                                st.image(ref_cropped_img, use_container_width=True)
                             else:
                                 st.info("No reference")
 

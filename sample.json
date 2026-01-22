@@ -1,5 +1,5 @@
 {
-  "base_dir": "./ArmChair_01_4k",
+  "base_dir": "./sample_data",
   "methods": [
     {
       "name": "Image",

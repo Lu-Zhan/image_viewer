@@ -16,6 +16,10 @@
     {
       "name": "Irradiance",
       "description": "D4"
+    },
+    {
+      "name": "Reference",
+      "description": "D4"
     }
   ],
   "samples": [
@@ -25,10 +29,10 @@
         "Image": "images/cobblestone_street_night_4k.png",
         "Albedo": "intrinsics/basecolor.png",
         "Normal": "intrinsics/normal.png",
-        "Irradiance": "irradiances/cobblestone_street_night_4k.png"
+        "Irradiance": "irradiances/cobblestone_street_night_4k.png",
+        "Reference": "images/cobblestone_street_night_4k.png"
       },
       "text": "Prompt1",
-      "reference": "images/cobblestone_street_night_4k.png",
       "mask": "intrinsics/mask.png"
     },
     {
@@ -37,10 +41,10 @@
         "Image": "images/old_outdoor_theater_4k.png",
         "Albedo": "intrinsics/basecolor.png",
         "Normal": "intrinsics/normal.png",
-        "Irradiance": "irradiances/old_outdoor_theater_4k.png"
+        "Irradiance": "irradiances/old_outdoor_theater_4k.png",
+        "Reference": "images/cobblestone_street_night_4k.png"
       },
       "text": "Prompt2",
-      "reference": "images/old_outdoor_theater_4k.png",
       "mask": "intrinsics/mask.png"
     },
     {
@@ -49,10 +53,10 @@
         "Image": "images/the_sky_is_on_fire_4k.png",
         "Albedo": "intrinsics/basecolor.png",
         "Normal": "intrinsics/normal.png",
-        "Irradiance": "Image not found"
+        "Irradiance": "Image not found",
+        "Reference": "images/cobblestone_street_night_4k.png"
       },
       "text": "Prompt3",
-      "reference": "images/the_sky_is_on_fire_4k.png",
       "mask": "intrinsics/mask.png"
     }
   ]

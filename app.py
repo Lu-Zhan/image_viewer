@@ -44,8 +44,9 @@ LANGUAGES = {
         'show_method_name': '显示方法名称 (Method Name)',
         'show_text': '显示样本文本 (Text)',
         'show_descriptions': '显示方法说明 (Descriptions)',
-        'show_reference': '显示参考图片 (Reference)',
         'reference': 'Reference',
+        'method_display': '🎯 方法显示',
+        'select_methods': '选择要显示的方法',
         'instructions': '📖 使用说明',
         'edit_crop': '✏️ Edit',
         'delete_crop': '🗑️ Delete',
@@ -104,8 +105,9 @@ LANGUAGES = {
         'show_method_name': 'Show Method Name',
         'show_text': 'Show Sample Text',
         'show_descriptions': 'Show Method Descriptions',
-        'show_reference': 'Show Reference Images',
         'reference': 'Reference',
+        'method_display': '🎯 Method Display',
+        'select_methods': 'Select methods to display',
         'instructions': '📖 Instructions',
         'edit_crop': '✏️ Edit',
         'delete_crop': '🗑️ Delete',
@@ -193,16 +195,6 @@ def load_json_config(uploaded_file) -> Optional[Dict]:
         return None
 
 
-def check_references_available(samples: List[Dict], base_dir: Path) -> bool:
-    """检查是否至少有一个 sample 有有效的 reference 图片"""
-    for sample in samples:
-        if "reference" in sample and sample["reference"]:
-            ref_path = base_dir / sample["reference"]
-            if ref_path.exists() and ref_path.is_file():
-                return True
-    return False
-
-
 def check_masks_available(samples: List[Dict], base_dir: Path) -> bool:
     """检查是否至少有一个 sample 有有效的 mask 图片"""
     for sample in samples:
@@ -211,6 +203,11 @@ def check_masks_available(samples: List[Dict], base_dir: Path) -> bool:
             if mask_path.exists() and mask_path.is_file():
                 return True
     return False
+
+
+def filter_visible_methods(methods: List[Dict], visible_methods: List[str]) -> List[Dict]:
+    """根据用户选择过滤可见方法"""
+    return [m for m in methods if m["name"] in visible_methods]
 
 
 def get_aspect_ratio(image: Image.Image) -> float:
@@ -394,7 +391,7 @@ def apply_mask_to_image(image: Image.Image, mask: Image.Image, overlay_opacity: 
 def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
                          samples: List[Dict], methods: List[Dict],
                          base_dir: Path, target_width: int,
-                         crop_id: str, color: str) -> bool:
+                         crop_id: str, color: str, visible_methods: List[str] = None) -> bool:
     """
     对样本的所有方法图片应用相同的裁剪框（支持多crop）
     参数:
@@ -414,7 +411,10 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
         cropped_images = {}
         original_sizes = {}
 
-        for method in methods:
+        # 使用过滤后的方法列表
+        visible_methods_list = filter_visible_methods(methods, visible_methods) if visible_methods else methods
+
+        for method in visible_methods_list:
             method_name = method["name"]
 
             if method_name not in sample["images"]:
@@ -435,16 +435,6 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
             # 应用裁剪
             cropped = apply_crop_to_image(img, box, target_width)
             cropped_images[method_name] = cropped
-
-        # 处理 reference 图片
-        if "reference" in sample and sample["reference"]:
-            ref_rel_path = sample["reference"]
-            if check_image_exists(base_dir, ref_rel_path):
-                ref_path = base_dir / ref_rel_path
-                ref_img = Image.open(ref_path)
-                original_sizes["__reference__"] = ref_img.size
-                cropped_ref = apply_crop_to_image(ref_img, box, target_width)
-                cropped_images["__reference__"] = cropped_ref
 
         # 创建新的crop对象
         new_crop = {
@@ -579,22 +569,24 @@ def generate_pdf_from_current_view(
     show_text: bool,
     show_sample_name: bool,
     show_descriptions: bool,
-    show_reference: bool,
-    has_references: bool,
     close_view_enabled: bool,
     crop_data: Dict,
     preserve_aspect_ratio: bool,
     lang: Dict,
     use_mask: bool = False,
     darken_factor: float = 0.5,
-    image_width: int = 800
+    image_width: int = 800,
+    visible_methods: List[str] = None
 ) -> bytes:
     """
     生成当前视图的PDF
     返回: PDF二进制数据
     """
     overlay_opacity = darken_factor  # Rename for clarity in function
-    
+
+    # 使用过滤后的方法列表
+    visible_methods_list = filter_visible_methods(methods, visible_methods) if visible_methods else methods
+
     # 创建PDF缓冲区
     buffer = io.BytesIO()
     
@@ -650,8 +642,8 @@ def generate_pdf_from_current_view(
     available_width = page_width - 2*mm  # 减去左右边距（1mm×2）
     
     # 计算列数
-    num_methods = len(methods)
-    num_cols = num_methods + (1 if (show_reference and has_references) else 0)
+    num_methods = len(visible_methods_list)
+    num_cols = num_methods
     
     # 列间距（约10px = 3.5mm）
     col_spacing = 3.5*mm
@@ -683,12 +675,9 @@ def generate_pdf_from_current_view(
         # 方法名称行（只在第一个样本时显示）
         if show_method_name and row_idx == 0:
             method_names_row = []
-            for method in methods:
+            for method in visible_methods_list:
                 method_names_row.append(Paragraph(method['name'], method_name_style))
-            
-            if show_reference and has_references:
-                method_names_row.append(Paragraph(lang['reference'], method_name_style))
-            
+
             # 创建方法名称表格
             name_table = Table([method_names_row], colWidths=[col_width] * num_cols)
             name_table.setStyle(TableStyle([
@@ -753,51 +742,7 @@ def generate_pdf_from_current_view(
                     images_row.append(Paragraph("Error", text_style))
             except Exception as e:
                 images_row.append(Paragraph("Error", text_style))
-        
-        # 添加reference图片
-        if show_reference and has_references:
-            if "reference" in sample and sample["reference"]:
-                ref_rel_path = sample["reference"]
-                if check_image_exists(base_dir, ref_rel_path):
-                    ref_path = base_dir / ref_rel_path
-                    try:
-                        ref_img, _, _ = load_and_process_image(
-                            ref_path, image_width, preserve_aspect_ratio
-                        )
-                        if ref_img is not None:
-                            # 应用 mask（如果启用且存在）
-                            if use_mask and "mask" in sample and sample["mask"]:
-                                mask_path = base_dir / sample["mask"]
-                                if check_image_exists(base_dir, sample["mask"]):
-                                    mask_img = load_mask(mask_path, ref_img.size)
-                                    if mask_img is not None:
-                                        ref_img = apply_mask_to_image(ref_img, mask_img, overlay_opacity)
-                            
-                            # 如果有crop data且close view启用，绘制裁剪框
-                            if close_view_enabled and sample_crop_data:
-                                try:
-                                    original_img = Image.open(ref_path)
-                                    original_size = original_img.size
-                                    display_size = ref_img.size
-                                    crops = sample_crop_data.get('crops', [])
-                                    if crops:
-                                        ref_img = draw_all_crop_boxes_on_image(
-                                            ref_img, crops, original_size, display_size
-                                        )
-                                except Exception:
-                                    pass
-                            
-                            rl_img = pil_image_to_rl_image(ref_img, col_width, max_img_height)
-                            images_row.append(rl_img)
-                        else:
-                            images_row.append(Paragraph("Error", text_style))
-                    except Exception:
-                        images_row.append(Paragraph("Error", text_style))
-                else:
-                    images_row.append(Paragraph("Missing", text_style))
-            else:
-                images_row.append(Paragraph("No ref", text_style))
-        
+
         # 创建图片表格，添加行间距
         img_table = Table([images_row], colWidths=[col_width] * num_cols, rowHeights=None)
         img_table.setStyle(TableStyle([
@@ -862,7 +807,7 @@ def generate_pdf_from_current_view(
                 
                 # 收集裁剪后的图片（Close View不应用mask）
                 cropped_row = []
-                for method in methods:
+                for method in visible_methods_list:
                     method_name = method["name"]
                     if method_name in crop.get('cropped_images', {}):
                         cropped_img = crop['cropped_images'][method_name]
@@ -870,16 +815,7 @@ def generate_pdf_from_current_view(
                         cropped_row.append(rl_img)
                     else:
                         cropped_row.append(Paragraph("N/A", text_style))
-                
-                # 添加reference的裁剪图片（Close View不应用mask）
-                if show_reference and has_references:
-                    if "__reference__" in crop.get('cropped_images', {}):
-                        cropped_ref = crop['cropped_images']['__reference__']
-                        rl_img = pil_image_to_rl_image(cropped_ref, col_width, max_img_height)
-                        cropped_row.append(rl_img)
-                    else:
-                        cropped_row.append(Paragraph("No ref", text_style))
-                
+
                 # 创建裁剪图片表格，添加行间距
                 crop_table = Table([cropped_row], colWidths=[col_width] * num_cols, rowHeights=None)
                 crop_table.setStyle(TableStyle([
@@ -923,13 +859,7 @@ def generate_pdf_from_current_view(
                 Paragraph(f"<b>{method['name']}</b>", text_style),
                 Paragraph(desc if desc else "-", text_style)
             ])
-        
-        if show_reference and has_references:
-            desc_data.append([
-                Paragraph(f"<b>{lang['reference']}</b>", text_style),
-                Paragraph("-", text_style)
-            ])
-        
+
         desc_table = Table(desc_data, colWidths=[50*mm, available_width - 55*mm])
         desc_table.setStyle(TableStyle([
             ('ALIGN', (0, 0), (0, -1), 'LEFT'),
@@ -1110,8 +1040,8 @@ def main():
         st.session_state.show_sample_name = True
     if 'show_method_name' not in st.session_state:
         st.session_state.show_method_name = True
-    if 'show_reference' not in st.session_state:
-        st.session_state.show_reference = True
+    if 'visible_methods' not in st.session_state:
+        st.session_state.visible_methods = []
 
     # Close view session state
     if 'close_view_enabled' not in st.session_state:
@@ -1209,9 +1139,6 @@ def main():
     methods = config["methods"]
     samples = config["samples"]
 
-    # Check if any sample has reference images available
-    has_references = check_references_available(samples, base_dir)
-    
     # Check if any sample has mask images available
     has_masks = check_masks_available(samples, base_dir)
 
@@ -1327,15 +1254,6 @@ def main():
                 key="show_method_name_checkbox"
             )
 
-            # 控制是否显示参考图片
-            st.session_state.show_reference = st.checkbox(
-                lang['show_reference'],
-                value=st.session_state.show_reference,
-                disabled=not has_references,
-                help="No reference images available in this dataset" if not has_references else None,
-                key="show_reference_checkbox"
-            )
-
             # 控制是否显示 text 和 descriptions
             st.session_state.show_text = st.checkbox(
                 lang['show_text'],
@@ -1355,6 +1273,32 @@ def main():
                 help=lang['preserve_aspect_ratio_help'],
                 key="preserve_aspect_ratio_checkbox"
             )
+
+            st.divider()
+            st.markdown(f"**{lang['method_display']}**")
+
+            # 初始化为所有方法（如果还没有初始化）
+            if not st.session_state.visible_methods:
+                st.session_state.visible_methods = [m["name"] for m in methods]
+
+            # 为每个方法创建复选框
+            for method in methods:
+                method_name = method["name"]
+                is_visible = method_name in st.session_state.visible_methods
+
+                if st.checkbox(
+                    method_name,
+                    value=is_visible,
+                    key=f"method_visible_{method_name}",
+                    help=method.get("description", None)
+                ):
+                    if method_name not in st.session_state.visible_methods:
+                        st.session_state.visible_methods.append(method_name)
+                else:
+                    if method_name in st.session_state.visible_methods:
+                        st.session_state.visible_methods.remove(method_name)
+
+            st.divider()
 
             st.session_state.text_size = st.slider(
                 lang['text_size_label'],
@@ -1485,9 +1429,9 @@ def main():
                 _samples, _methods, _base_dir_str,
                 _start_idx, _num_rows,
                 _show_method_name, _show_text, _show_sample_name,
-                _show_descriptions, _show_reference, _has_references,
+                _show_descriptions,
                 _close_view_enabled, _crop_data_str, _preserve_aspect_ratio,
-                _lang_key, _image_width
+                _lang_key, _image_width, _visible_methods
             ):
                 """缓存PDF生成结果"""
                 import json as json_module
@@ -1516,13 +1460,12 @@ def main():
                     show_text=_show_text,
                     show_sample_name=_show_sample_name,
                     show_descriptions=_show_descriptions,
-                    show_reference=_show_reference,
-                    has_references=_has_references,
                     close_view_enabled=_close_view_enabled,
                     crop_data=crop_data_int,
                     preserve_aspect_ratio=_preserve_aspect_ratio,
                     lang=lang_dict,
-                    image_width=_image_width
+                    image_width=_image_width,
+                    visible_methods=_visible_methods
                 )
             
             # 由于crop_data包含PIL Image对象，需要特殊处理
@@ -1538,15 +1481,14 @@ def main():
                     show_text=st.session_state.show_text,
                     show_sample_name=st.session_state.show_sample_name,
                     show_descriptions=st.session_state.show_descriptions,
-                    show_reference=st.session_state.show_reference,
-                    has_references=has_references,
                     close_view_enabled=st.session_state.close_view_enabled,
                     crop_data=st.session_state.crop_data,
                     preserve_aspect_ratio=st.session_state.preserve_aspect_ratio,
                     lang=lang,
                     use_mask=st.session_state.use_mask,
                     darken_factor=st.session_state.darken_factor,
-                    image_width=image_width
+                    image_width=image_width,
+                    visible_methods=st.session_state.visible_methods
                 )
                 
                 # 生成文件名
@@ -1627,11 +1569,6 @@ def main():
             if check_image_exists(base_dir, sample["images"][name])
         ]
 
-        # 添加 reference 到选择列表
-        if "reference" in sample and sample["reference"] and \
-           check_image_exists(base_dir, sample["reference"]):
-            method_names.append("__reference__")
-
         # 显示可用图片数量
         if len(method_names) < len(all_method_names):
             st.info(lang['valid_methods_count'].format(n=len(method_names), total=len(all_method_names)))
@@ -1646,21 +1583,13 @@ def main():
         if st.session_state.cropper_reference_method is None or st.session_state.cropper_reference_method not in method_names:
             st.session_state.cropper_reference_method = method_names[0]
 
-        # 创建选项标签（为 reference 使用翻译后的名称）
-        method_options = []
-        for name in method_names:
-            if name == "__reference__":
-                method_options.append(lang['reference'])
-            else:
-                method_options.append(name)
-
         # Display method selection
         st.write(lang['select_reference_image'])
         selected_idx = st.radio(
             "Method",
             range(len(method_names)),
             index=method_names.index(st.session_state.cropper_reference_method),
-            format_func=lambda i: method_options[i],
+            format_func=lambda i: method_names[i],
             horizontal=True,
             label_visibility="collapsed"
         )
@@ -1669,10 +1598,7 @@ def main():
 
         # Load reference image
         try:
-            if selected_method == "__reference__":
-                image_rel_path = sample["reference"]
-            else:
-                image_rel_path = sample["images"][selected_method]
+            image_rel_path = sample["images"][selected_method]
             image_path = base_dir / image_rel_path
             reference_img = Image.open(image_path)
 
@@ -1775,7 +1701,7 @@ def main():
                                int(cropped_img['top'] + cropped_img['height']))
 
                         # Save crop for all methods in this sample
-                        if save_crop_for_sample(sample_idx, box, samples, methods, base_dir, image_width, crop_id, crop_color):
+                        if save_crop_for_sample(sample_idx, box, samples, methods, base_dir, image_width, crop_id, crop_color, st.session_state.visible_methods):
                             st.success("Crop saved successfully!")
 
                             # Increment counter if this was a new crop
@@ -1821,7 +1747,10 @@ def main():
         actual_sample_idx = start_idx + row_idx
         crop_data = get_crop_data(actual_sample_idx)
 
-        for method in methods:
+        # 使用过滤后的方法列表
+        visible_methods_list = filter_visible_methods(methods, st.session_state.visible_methods)
+
+        for method in visible_methods_list:
             method_name = method["name"]
             method_desc = method.get("description", "")
 
@@ -1877,56 +1806,10 @@ def main():
                 aspect_ratios.append((method_name, original_ratio))
                 all_aspect_ratios.append((sample['name'], method_name, original_ratio))
 
-        # 加载 reference 图片
-        reference_image_data = None
-        if st.session_state.show_reference and has_references:
-            if "reference" in sample and sample["reference"]:
-                ref_rel_path = sample["reference"]
-                if check_image_exists(base_dir, ref_rel_path):
-                    ref_path = base_dir / ref_rel_path
-                    ref_img, ref_ratio, ref_cropped = load_and_process_image(
-                        ref_path, image_width, st.session_state.preserve_aspect_ratio
-                    )
-
-                    if ref_img is not None:
-                        # 应用 mask（如果启用且存在）
-                        if st.session_state.use_mask and "mask" in sample and sample["mask"]:
-                            mask_path = base_dir / sample["mask"]
-                            if check_image_exists(base_dir, sample["mask"]):
-                                mask_img = load_mask(mask_path, ref_img.size)
-                                if mask_img is not None:
-                                    ref_img = apply_mask_to_image(ref_img, mask_img, st.session_state.darken_factor)
-                        
-                        # 如果有crop data且close view启用，在图片上绘制所有crop框
-                        if st.session_state.close_view_enabled and crop_data:
-                            try:
-                                original_img = Image.open(ref_path)
-                                original_size = original_img.size
-                                display_size = ref_img.size
-                                crops = crop_data.get('crops', [])
-                                if crops:
-                                    ref_img = draw_all_crop_boxes_on_image(
-                                        ref_img, crops, original_size, display_size
-                                    )
-                            except Exception:
-                                pass
-
-                        reference_image_data = {
-                            "image": ref_img,
-                            "original_ratio": ref_ratio,
-                            "was_cropped": ref_cropped,
-                            "path": ref_rel_path
-                        }
-                        # 添加到宽高比跟踪
-                        aspect_ratios.append(("Reference", ref_ratio))
-                        all_aspect_ratios.append((sample['name'], "Reference", ref_ratio))
-
         # 并排显示图片
         if images_data:
-            # 判断是否显示 reference 列
-            show_ref_col = st.session_state.show_reference and has_references
             # 计算总列数
-            num_cols = len(images_data) + (1 if show_ref_col else 0)
+            num_cols = len(images_data)
             cols = st.columns(num_cols)
 
             # 渲染主图片
@@ -1940,22 +1823,6 @@ def main():
                         data["image"],
                         use_container_width=True
                     )
-
-            # 显示 reference 图片在最后一列
-            if show_ref_col:
-                with cols[-1]:
-                    if st.session_state.show_method_name and row_idx == 0:
-                        method_size = st.session_state.method_text_size
-                        st.markdown(
-                            f"<span style='font-size: {method_size}px; font-weight: bold;'>{lang['reference']}</span>",
-                            unsafe_allow_html=True
-                        )
-
-                    if reference_image_data:
-                        st.image(reference_image_data["image"], use_container_width=True)
-                    else:
-                        # 显示占位符（没有 reference 的 sample）
-                        st.info("No reference")
 
             # Display multiple cropped close views vertically
             if st.session_state.close_view_enabled and crop_data:
@@ -2001,15 +1868,6 @@ def main():
                                 cropped_img = crop['cropped_images'][method_name]
                                 st.image(cropped_img, use_container_width=True)
 
-                    # 显示 reference 的裁剪图片
-                    if show_ref_col:
-                        with crop_cols[-1]:
-                            if "__reference__" in crop['cropped_images']:
-                                ref_cropped_img = crop['cropped_images']['__reference__']
-                                st.image(ref_cropped_img, use_container_width=True)
-                            else:
-                                st.info("No reference")
-
             # Add Crop button at the bottom if close view is enabled and button is set to show
             if st.session_state.close_view_enabled and st.session_state.show_edit_crop_button:
                 # Check if max crops reached
@@ -2047,22 +1905,18 @@ def main():
             method_size = st.session_state.method_text_size
             st.markdown(f"<span style='font-size: {method_size + 2}px; font-weight: bold;'>{lang['method_desc_title']}</span>", unsafe_allow_html=True)
 
-            # 计算列数（包括 reference）
-            num_desc_cols = len(methods) + (1 if (st.session_state.show_reference and has_references) else 0)
+            # 计算列数（使用过滤后的方法）
+            visible_methods_desc = filter_visible_methods(methods, st.session_state.visible_methods)
+            num_desc_cols = len(visible_methods_desc)
             method_cols = st.columns(num_desc_cols)
 
             # 显示 methods 描述
-            for col, method in zip(method_cols[:len(methods)], methods):
+            for col, method in zip(method_cols, visible_methods_desc):
                 with col:
                     st.markdown(f"<span style='font-size: {method_size}px; font-weight: bold;'>{method['name']}</span>", unsafe_allow_html=True)
                     if method.get("description"):
                         st.markdown(f"<span style='font-size: {method_size - 2}px; color: gray;'>{method['description']}</span>", unsafe_allow_html=True)
 
-            # 添加 reference 列标签
-            if st.session_state.show_reference and has_references:
-                with method_cols[-1]:
-                    st.markdown(f"<span style='font-size: {method_size}px; font-weight: bold;'>{lang['reference']}</span>", unsafe_allow_html=True)
-        
         # 添加分隔线（除了最后一个样本）
         if row_idx < len(selected_samples) - 1:
             st.divider()

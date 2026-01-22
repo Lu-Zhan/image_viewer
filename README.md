@@ -14,6 +14,29 @@
 - 📋 **Reference 查看**：支持显示参考图片，便于对比生成结果与原始参考
 - 🎭 **Mask 功能**：支持对图片应用 mask 效果，mask > 0 区域正常显示，其余区域变暗
 - 📥 **PDF 导出**：一键导出当前页面为 PDF 文件，包含所有图片和 Close View
+- 🌐 **双语支持**：支持中文和英文界面切换
+
+## 项目结构
+
+```
+image_viewer/
+├── app.py                     # 主入口文件
+├── config/                    # 配置模块
+│   ├── constants.py           # 常量定义
+│   └── languages.py           # 多语言配置
+├── utils/                     # 工具模块
+│   ├── json_loader.py         # JSON 配置加载
+│   ├── image_processing.py    # 图片处理
+│   └── mask.py                # Mask 功能
+├── services/                  # 服务模块
+│   ├── crop_manager.py        # Crop 数据管理
+│   └── pdf_export.py          # PDF 导出
+└── ui/                        # UI 模块
+    ├── styles.py              # CSS 样式
+    ├── sidebar.py             # 侧边栏
+    ├── main_view.py           # 主视图
+    └── crop_editor.py         # Crop 编辑器
+```
 
 ## 安装
 

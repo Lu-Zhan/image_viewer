@@ -50,6 +50,8 @@ Thumbs.db
 .claude/settings.local.json
 
 # Test data
-test_images/
+sample_data/
 temp/
 tmp/
+
+

@@ -11,10 +11,11 @@ from reportlab.lib import colors
 
 from utils.image_processing import (
     load_and_process_image,
-    check_image_exists,
     get_aspect_ratio,
     draw_all_crop_boxes_on_image,
     filter_visible_methods,
+    get_image_path,
+    image_path_exists,
 )
 from utils.mask import load_mask, apply_mask_to_image
 
@@ -210,9 +211,9 @@ def generate_pdf_from_current_view(
                 continue
             
             image_rel_path = sample["images"][method_name]
-            image_path = base_dir / image_rel_path
+            image_path = get_image_path(image_rel_path, base_dir)
             
-            if not check_image_exists(base_dir, image_rel_path):
+            if not image_path_exists(image_rel_path, base_dir):
                 images_row.append(Paragraph("Missing", text_style))
                 continue
             
@@ -225,8 +226,8 @@ def generate_pdf_from_current_view(
                 if processed_img is not None:
                     # 应用 mask（如果启用且存在）
                     if use_mask and "mask" in sample and sample["mask"]:
-                        mask_path = base_dir / sample["mask"]
-                        if check_image_exists(base_dir, sample["mask"]):
+                        mask_path = get_image_path(sample["mask"], base_dir)
+                        if image_path_exists(sample["mask"], base_dir):
                             mask_img = load_mask(mask_path, processed_img.size)
                             if mask_img is not None:
                                 processed_img = apply_mask_to_image(processed_img, mask_img, overlay_opacity)

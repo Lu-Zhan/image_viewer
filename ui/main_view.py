@@ -9,6 +9,8 @@ from utils.image_processing import (
     check_image_exists,
     draw_all_crop_boxes_on_image,
     filter_visible_methods,
+    get_image_path,
+    image_path_exists,
 )
 from utils.mask import load_mask, apply_mask_to_image
 from services.crop_manager import get_crop_data, delete_crop_from_sample
@@ -51,7 +53,8 @@ def render_main_view(
                 continue
 
             image_rel_path = sample["images"][method_name]
-            image_path = base_dir / image_rel_path
+            # 使用共享工具函数支持绝对路径和相对路径
+            image_path = get_image_path(image_rel_path, base_dir)
 
             # 加载并处理图片
             processed_img, original_ratio, was_cropped = load_and_process_image(
@@ -61,8 +64,8 @@ def render_main_view(
             if processed_img is not None:
                 # 应用 mask（如果启用且存在）
                 if st.session_state.use_mask and "mask" in sample and sample["mask"]:
-                    mask_path = base_dir / sample["mask"]
-                    if check_image_exists(base_dir, sample["mask"]):
+                    mask_path = get_image_path(sample["mask"], base_dir)
+                    if image_path_exists(sample["mask"], base_dir):
                         mask_img = load_mask(mask_path, processed_img.size)
                         if mask_img is not None:
                             processed_img = apply_mask_to_image(processed_img, mask_img, st.session_state.darken_factor)

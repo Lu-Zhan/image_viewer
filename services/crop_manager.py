@@ -4,7 +4,7 @@ import streamlit as st
 from typing import Dict, List, Tuple, Optional
 
 from config.constants import CROP_COLORS
-from utils.image_processing import apply_crop_to_image, check_image_exists, filter_visible_methods
+from utils.image_processing import apply_crop_to_image, filter_visible_methods, get_image_path, image_path_exists
 
 
 def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
@@ -43,10 +43,10 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
             image_rel_path = sample["images"][method_name]
 
             # 跳过不存在的图片文件
-            if not check_image_exists(base_dir, image_rel_path):
+            if not image_path_exists(image_rel_path, base_dir):
                 continue
 
-            image_path = base_dir / image_rel_path
+            image_path = get_image_path(image_rel_path, base_dir)
 
             # 加载原始图片
             img = Image.open(image_path)

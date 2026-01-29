@@ -4,6 +4,37 @@ import streamlit as st
 from typing import Dict, List, Tuple, Optional
 
 
+def get_image_path(rel_path: str, base_dir: Path) -> Path:
+    """
+    获取图片的完整路径，支持绝对路径和相对路径
+    
+    参数:
+        rel_path: 图片路径（可以是绝对路径或相对于 base_dir 的相对路径）
+        base_dir: 基础目录（当 rel_path 是相对路径时使用）
+    
+    返回:
+        完整的 Path 对象
+    """
+    if Path(rel_path).is_absolute():
+        return Path(rel_path)
+    return base_dir / rel_path
+
+
+def image_path_exists(rel_path: str, base_dir: Path) -> bool:
+    """
+    检查图片文件是否存在，支持绝对路径和相对路径
+    
+    参数:
+        rel_path: 图片路径（可以是绝对路径或相对于 base_dir 的相对路径）
+        base_dir: 基础目录（当 rel_path 是相对路径时使用）
+    
+    返回:
+        是否存在
+    """
+    path = get_image_path(rel_path, base_dir)
+    return path.exists() and path.is_file()
+
+
 def filter_visible_methods(methods: List[Dict], visible_methods: List[str]) -> List[Dict]:
     """根据用户选择过滤可见方法"""
     return [m for m in methods if m["name"] in visible_methods]

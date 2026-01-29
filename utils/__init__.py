@@ -9,8 +9,11 @@ from .image_processing import (
     draw_crop_box_on_image,
     draw_all_crop_boxes_on_image,
     filter_visible_methods,
+    get_image_path,
+    image_path_exists,
 )
 from .mask import check_masks_available, load_mask, apply_mask_to_image
+from .path_loader import load_path_list_config
 
 __all__ = [
     'load_json_config',
@@ -23,7 +26,10 @@ __all__ = [
     'draw_crop_box_on_image',
     'draw_all_crop_boxes_on_image',
     'filter_visible_methods',
+    'get_image_path',
+    'image_path_exists',
     'check_masks_available',
     'load_mask',
     'apply_mask_to_image',
+    'load_path_list_config',
 ]

@@ -5,7 +5,7 @@ from PIL import Image
 import time
 from typing import Dict, List
 
-from utils.image_processing import check_image_exists, apply_crop_to_image
+from utils.image_processing import apply_crop_to_image, get_image_path, image_path_exists
 from utils.mask import load_mask, apply_mask_to_image
 from services.crop_manager import (
     get_crop_data,
@@ -79,20 +79,9 @@ def render_crop_editor(
     # 收集可用的方法名称
     all_method_names = [m["name"] for m in methods if m["name"] in sample["images"]]
     
-    def get_image_path(rel_path):
-        """Helper to handle both absolute and relative paths"""
-        if Path(rel_path).is_absolute():
-            return Path(rel_path)
-        return base_dir / rel_path
-    
-    def image_exists(rel_path):
-        """Helper to check if image exists for both path types"""
-        path = get_image_path(rel_path)
-        return path.exists() and path.is_file()
-    
     method_names = [
         name for name in all_method_names
-        if image_exists(sample["images"][name])
+        if image_path_exists(sample["images"][name], base_dir)
     ]
 
     # 显示可用图片数量
@@ -125,7 +114,7 @@ def render_crop_editor(
     # Load reference image
     try:
         image_rel_path = sample["images"][selected_method]
-        image_path = get_image_path(image_rel_path)
+        image_path = get_image_path(image_rel_path, base_dir)
         reference_img = Image.open(image_path)
 
         # Create two columns for cropper and preview (1:1 ratio)
@@ -147,8 +136,8 @@ def render_crop_editor(
             
             # Apply mask to reference image in cropper if enabled
             if st.session_state.use_mask and "mask" in sample and sample["mask"]:
-                mask_path = get_image_path(sample["mask"])
-                if mask_path.exists() and mask_path.is_file():
+                mask_path = get_image_path(sample["mask"], base_dir)
+                if image_path_exists(sample["mask"], base_dir):
                     mask_img = load_mask(mask_path, display_ref_img.size)
                     if mask_img is not None:
                         display_ref_img = apply_mask_to_image(display_ref_img, mask_img, st.session_state.darken_factor)
@@ -204,8 +193,8 @@ def render_crop_editor(
                 
                 # Apply mask to preview if enabled
                 if st.session_state.use_mask and "mask" in sample and sample["mask"]:
-                    mask_path = get_image_path(sample["mask"])
-                    if mask_path.exists() and mask_path.is_file():
+                    mask_path = get_image_path(sample["mask"], base_dir)
+                    if image_path_exists(sample["mask"], base_dir):
                         mask_img = load_mask(mask_path, preview_img.size)
                         if mask_img is not None:
                             preview_img = apply_mask_to_image(preview_img, mask_img, st.session_state.darken_factor)

@@ -1,10 +1,12 @@
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import streamlit as st
 from typing import Dict, List, Tuple, Optional
 
 
-def filter_visible_methods(methods: List[Dict], visible_methods: List[str]) -> List[Dict]:
+def filter_visible_methods(
+    methods: List[Dict], visible_methods: List[str]
+) -> List[Dict]:
     """根据用户选择过滤可见方法"""
     return [m for m in methods if m["name"] in visible_methods]
 
@@ -15,35 +17,94 @@ def get_aspect_ratio(image: Image.Image) -> float:
     return width / height
 
 
+def create_placeholder_image(
+    width: int, height: int, text: str = "Image Missing"
+) -> Image.Image:
+    """
+    创建占位符图片
+
+    Args:
+        width: 图片宽度
+        height: 图片高度
+        text: 显示的文本
+
+    Returns:
+        占位符图片
+    """
+    # 创建灰色背景图片
+    img = Image.new("RGB", (width, height), color=(200, 200, 200))
+    draw = ImageDraw.Draw(img)
+
+    # 尝试使用默认字体
+    try:
+        # 计算合适的字体大小（根据图片大小）
+        font_size = max(20, min(width, height) // 10)
+        # 尝试加载系统字体（这里使用默认字体）
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+
+    # 计算文本位置（居中）
+    if font:
+        # 使用 textbbox 获取文本边界框
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+    else:
+        # 如果没有字体，粗略估计
+        text_width = len(text) * 8
+        text_height = 15
+
+    x = (width - text_width) // 2
+    y = (height - text_height) // 2
+
+    # 绘制文本
+    draw.text((x, y), text, fill=(100, 100, 100), font=font)
+
+    return img
+
+
 def find_closest_square_crop(image: Image.Image) -> Tuple[int, int, int, int]:
     """
     找到最接近 1:1 比例的裁剪区域（中心裁剪）
     返回: (left, top, right, bottom)
     """
     width, height = image.size
-    
+
     # 使用较小的边作为正方形边长
     crop_size = min(width, height)
-    
+
     # 计算中心裁剪的坐标
     left = (width - crop_size) // 2
     top = (height - crop_size) // 2
     right = left + crop_size
     bottom = top + crop_size
-    
+
     return (left, top, right, bottom)
 
 
-def load_and_process_image(image_path: Path, target_width: int = 512,
-                           preserve_aspect_ratio: bool = False) -> Tuple[Optional[Image.Image], float, bool]:
+def load_and_process_image(
+    image_path: Optional[Path],
+    target_width: int = 512,
+    preserve_aspect_ratio: bool = False,
+    placeholder_text: str = "Image Missing",
+) -> Tuple[Optional[Image.Image], float, bool]:
     """
     加载并处理图片
     参数:
-        image_path: 图片路径
+        image_path: 图片路径（如果为None，则生成占位符）
         target_width: 目标宽度
         preserve_aspect_ratio: 是否保持原始比例（不裁剪为正方形）
+        placeholder_text: 占位符文本
     返回: (处理后的图片, 原始宽高比, 是否被裁剪)
     """
+    # 如果图片路径为None，生成占位符图片
+    if image_path is None:
+        placeholder = create_placeholder_image(
+            target_width, target_width, placeholder_text
+        )
+        return placeholder, 1.0, False
+
     try:
         img = Image.open(image_path)
         original_ratio = get_aspect_ratio(img)
@@ -64,11 +125,18 @@ def load_and_process_image(image_path: Path, target_width: int = 512,
 
         return img, original_ratio, needs_crop
     except FileNotFoundError:
-        st.error(f"找不到图片文件: {image_path}")
-        return None, 0.0, False
+        # 文件不存在，生成占位符
+        placeholder = create_placeholder_image(
+            target_width, target_width, placeholder_text
+        )
+        return placeholder, 1.0, False
     except Exception as e:
         st.error(f"加载图片 {image_path} 时出错: {e}")
-        return None, 0.0, False
+        # 出错时也生成占位符
+        placeholder = create_placeholder_image(
+            target_width, target_width, placeholder_text
+        )
+        return placeholder, 1.0, False
 
 
 def check_image_exists(base_dir: Path, image_rel_path: str) -> bool:
@@ -100,7 +168,9 @@ def check_aspect_ratio_consistency(images_info: List[Tuple[str, float]]) -> bool
     return True
 
 
-def apply_crop_to_image(image: Image.Image, box: Tuple[int, int, int, int], target_width: int) -> Image.Image:
+def apply_crop_to_image(
+    image: Image.Image, box: Tuple[int, int, int, int], target_width: int
+) -> Image.Image:
     """
     对图片应用裁剪框并调整大小
     参数:
@@ -121,9 +191,13 @@ def apply_crop_to_image(image: Image.Image, box: Tuple[int, int, int, int], targ
     return resized
 
 
-def draw_crop_box_on_image(image: Image.Image, box: Tuple[int, int, int, int],
-                           original_size: Tuple[int, int], display_size: Tuple[int, int],
-                           color: str = '#00ff00') -> Image.Image:
+def draw_crop_box_on_image(
+    image: Image.Image,
+    box: Tuple[int, int, int, int],
+    original_size: Tuple[int, int],
+    display_size: Tuple[int, int],
+    color: str = "#00ff00",
+) -> Image.Image:
     """
     在图片上绘制裁剪框
     参数:
@@ -152,16 +226,18 @@ def draw_crop_box_on_image(image: Image.Image, box: Tuple[int, int, int, int],
     # 绘制指定颜色的矩形框（3像素宽）
     for i in range(3):
         draw.rectangle(
-            [(left + i, top + i), (right - i, bottom - i)],
-            outline=color,
-            width=1
+            [(left + i, top + i), (right - i, bottom - i)], outline=color, width=1
         )
 
     return img_with_box
 
 
-def draw_all_crop_boxes_on_image(image: Image.Image, crops: List[Dict],
-                                  original_size: Tuple[int, int], display_size: Tuple[int, int]) -> Image.Image:
+def draw_all_crop_boxes_on_image(
+    image: Image.Image,
+    crops: List[Dict],
+    original_size: Tuple[int, int],
+    display_size: Tuple[int, int],
+) -> Image.Image:
     """
     在图片上绘制多个裁剪框
     参数:
@@ -176,11 +252,7 @@ def draw_all_crop_boxes_on_image(image: Image.Image, crops: List[Dict],
 
     for crop in crops:
         result_img = draw_crop_box_on_image(
-            result_img,
-            crop['box'],
-            original_size,
-            display_size,
-            crop['color']
+            result_img, crop["box"], original_size, display_size, crop["color"]
         )
 
     return result_img

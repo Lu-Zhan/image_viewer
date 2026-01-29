@@ -11,6 +11,7 @@ from .image_processing import (
     filter_visible_methods,
 )
 from .mask import check_masks_available, load_mask, apply_mask_to_image
+from .path_loader import load_path_list_config
 
 __all__ = [
     'load_json_config',
@@ -26,4 +27,5 @@ __all__ = [
     'check_masks_available',
     'load_mask',
     'apply_mask_to_image',
+    'load_path_list_config',
 ]

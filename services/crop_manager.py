@@ -26,6 +26,17 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
     返回:
         是否成功
     """
+    def get_image_path(rel_path):
+        """Helper to handle both absolute and relative paths"""
+        if Path(rel_path).is_absolute():
+            return Path(rel_path)
+        return base_dir / rel_path
+    
+    def image_exists(rel_path):
+        """Helper to check if image exists for both path types"""
+        path = get_image_path(rel_path)
+        return path.exists() and path.is_file()
+    
     try:
         sample = samples[sample_idx]
         cropped_images = {}
@@ -43,10 +54,10 @@ def save_crop_for_sample(sample_idx: int, box: Tuple[int, int, int, int],
             image_rel_path = sample["images"][method_name]
 
             # 跳过不存在的图片文件
-            if not check_image_exists(base_dir, image_rel_path):
+            if not image_exists(image_rel_path):
                 continue
 
-            image_path = base_dir / image_rel_path
+            image_path = get_image_path(image_rel_path)
 
             # 加载原始图片
             img = Image.open(image_path)

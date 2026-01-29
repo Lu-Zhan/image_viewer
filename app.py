@@ -4,6 +4,7 @@ from pathlib import Path
 
 from config.languages import LANGUAGES
 from utils.json_loader import load_json_config
+from utils.path_loader import load_path_list_config
 from utils.mask import check_masks_available
 from services.crop_manager import migrate_crop_data_if_needed
 from services.pdf_export import generate_pdf_from_current_view
@@ -70,6 +71,14 @@ def main():
     if 'darken_factor' not in st.session_state:
         st.session_state.darken_factor = 1.0
 
+    # Input mode session state
+    if 'input_mode' not in st.session_state:
+        st.session_state.input_mode = 'json'
+    if 'path_list_text' not in st.session_state:
+        st.session_state.path_list_text = ''
+    if 'path_config' not in st.session_state:
+        st.session_state.path_config = None
+
     # 迁移旧的crop数据格式到新格式
     migrate_crop_data_if_needed()
 
@@ -83,21 +92,58 @@ def main():
             st.session_state.language = 'en' if st.session_state.language == 'zh' else 'zh'
             st.rerun()
 
-        # 文件上传
-        uploaded_file = st.file_uploader(
-            lang['upload_label'],
-            type=["json"],
-            help=lang['upload_help']
+        # 输入模式选择
+        input_mode = st.radio(
+            lang['input_mode_label'],
+            options=['json', 'paths'],
+            format_func=lambda x: lang['input_mode_json'] if x == 'json' else lang['input_mode_paths'],
+            key='input_mode',
+            horizontal=True
         )
 
-    # 主界面 - 未上传文件时显示提示
-    if uploaded_file is None:
-        st.title(lang['sidebar_title'])
-        st.info(lang['no_file_msg'])
+        uploaded_file = None
+        config = None
 
-        # 显示示例 JSON 格式
-        with st.expander(lang['json_example_title']):
-            st.code('''{
+        if input_mode == 'json':
+            # JSON 文件上传
+            uploaded_file = st.file_uploader(
+                lang['upload_label'],
+                type=["json"],
+                help=lang['upload_help']
+            )
+        else:
+            # 路径列表输入
+            path_list_text = st.text_area(
+                lang['path_list_label'],
+                value=st.session_state.path_list_text,
+                help=lang['path_list_help'],
+                placeholder=lang['path_list_placeholder'],
+                height=150
+            )
+            st.session_state.path_list_text = path_list_text
+
+            if st.button(lang['load_paths_button'], use_container_width=True):
+                if path_list_text.strip():
+                    config, error_msg = load_path_list_config(path_list_text)
+                    if config:
+                        st.session_state.path_config = config
+                        st.session_state.selected_sample_idx = 0
+                        st.session_state.visible_methods = []
+                        st.rerun()
+                    else:
+                        st.error(error_msg)
+                else:
+                    st.warning(lang['path_list_help'])
+
+    # 确定配置来源
+    if input_mode == 'json':
+        if uploaded_file is None:
+            st.title(lang['sidebar_title'])
+            st.info(lang['no_file_msg'])
+
+            # 显示示例 JSON 格式
+            with st.expander(lang['json_example_title']):
+                st.code('''{
   "base_dir": "./images",
   "methods": [
     {
@@ -120,14 +166,67 @@ def main():
     }
   ]
 }''', language="json")
-        return
-    
-    # 加载配置
-    config = load_json_config(uploaded_file)
-    if config is None:
-        return
+            return
+        
+        # 加载 JSON 配置
+        config = load_json_config(uploaded_file)
+        if config is None:
+            return
+    else:
+        # 路径列表模式
+        if st.session_state.path_config is None:
+            st.title(lang['sidebar_title'])
+            st.info(lang['no_file_msg'])
 
-    base_dir = Path(config["base_dir"])
+            # 显示路径列表格式说明
+            with st.expander(lang['path_list_example_title']):
+                if st.session_state.language == 'zh':
+                    st.markdown('''
+**路径列表格式说明：**
+- 每行输入一个文件夹路径
+- 第一个路径用于扫描图片文件
+- 其他路径假设有相同的文件结构
+- 支持相对路径和绝对路径
+- 以 `#` 开头的行会被忽略（注释）
+
+**示例：**
+```
+/home/user/project/method1
+/home/user/project/method2
+/home/user/project/method3
+```
+
+**自动生成的名称：**
+- 方法名称：Method 1, Method 2, Method 3...
+- 方法描述：Description 1, Description 2, Description 3...
+- 样本文本：Text 1, Text 2, Text 3...
+                    ''')
+                else:
+                    st.markdown('''
+**Path List Format:**
+- Enter one folder path per line
+- The first path is used to scan for image files
+- Other paths are assumed to have the same file structure
+- Both relative and absolute paths are supported
+- Lines starting with `#` are ignored (comments)
+
+**Example:**
+```
+/home/user/project/method1
+/home/user/project/method2
+/home/user/project/method3
+```
+
+**Auto-generated names:**
+- Method names: Method 1, Method 2, Method 3...
+- Descriptions: Description 1, Description 2, Description 3...
+- Sample text: Text 1, Text 2, Text 3...
+                    ''')
+            return
+        
+        config = st.session_state.path_config
+
+    base_dir = Path(config["base_dir"]) if config["base_dir"] else Path("")
     methods = config["methods"]
     samples = config["samples"]
 

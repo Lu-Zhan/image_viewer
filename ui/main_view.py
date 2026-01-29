@@ -51,7 +51,11 @@ def render_main_view(
                 continue
 
             image_rel_path = sample["images"][method_name]
-            image_path = base_dir / image_rel_path
+            # 支持绝对路径（路径列表模式）和相对路径（JSON模式）
+            if Path(image_rel_path).is_absolute():
+                image_path = Path(image_rel_path)
+            else:
+                image_path = base_dir / image_rel_path
 
             # 加载并处理图片
             processed_img, original_ratio, was_cropped = load_and_process_image(

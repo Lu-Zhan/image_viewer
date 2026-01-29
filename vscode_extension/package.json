@@ -1,0 +1,62 @@
+{
+  "name": "image-viewer-compare",
+  "displayName": "Image Viewer Compare",
+  "description": "A VS Code extension for side-by-side comparison of images processed with different methods",
+  "version": "0.0.1",
+  "publisher": "image-viewer",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "image",
+    "comparison",
+    "viewer",
+    "side-by-side"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "imageViewerCompare.openViewer",
+        "title": "Image Viewer: Open Viewer"
+      },
+      {
+        "command": "imageViewerCompare.openConfig",
+        "title": "Image Viewer: Open Configuration File"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "imageViewerCompare.openConfig",
+          "when": "resourceExtname == .json",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Lu-Zhan/image_viewer"
+  }
+}

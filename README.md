@@ -2,6 +2,8 @@
 
 基于 Streamlit 和 Pillow 的图片对比可视化应用程序。
 
+> 🆕 **VS Code 插件版本**: 查看 [vscode_extension](./vscode_extension) 目录获取 VS Code 插件版本。
+
 ## 功能特点
 
 - 📁 通过 JSON 配置文件加载多组图片

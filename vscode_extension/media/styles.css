@@ -1,0 +1,169 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: var(--vscode-font-family);
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    padding: 16px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.title {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+button {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 6px 14px;
+    cursor: pointer;
+    border-radius: 2px;
+    font-size: 13px;
+}
+
+button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.sample-info {
+    font-size: 13px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.options {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.option input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+}
+
+.option select {
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    padding: 4px 8px;
+    border-radius: 2px;
+}
+
+.image-grid {
+    display: grid;
+    gap: 16px;
+}
+
+.sample-row {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    padding: 12px;
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+}
+
+.sample-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.sample-name {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.sample-text {
+    color: var(--vscode-descriptionForeground);
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.images-container {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.image-card {
+    flex: 1;
+    min-width: 150px;
+    max-width: 300px;
+}
+
+.method-name {
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 6px;
+    color: var(--vscode-textLink-foreground);
+}
+
+.method-description {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 6px;
+}
+
+.image-wrapper {
+    position: relative;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.image-wrapper img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.image-error {
+    padding: 20px;
+    text-align: center;
+    color: var(--vscode-errorForeground);
+    font-size: 12px;
+}
+
+.no-samples {
+    text-align: center;
+    padding: 40px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.language-toggle {
+    font-size: 12px;
+    padding: 4px 8px;
+}
